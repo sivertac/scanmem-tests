@@ -14,6 +14,7 @@ struct Cli {
 
 #[derive(Subcommand, PartialEq, Eq, Debug)]
 enum Commands {
+    #[clap(alias = "q")]
     Exit,
     SetMemorySize {
         #[clap(value_parser=maybe_hex::<usize>)]
@@ -41,7 +42,7 @@ struct State {
     memory: Vec<u8>
 }
 
-static PROMPT: &str = "scanmem-test> ";
+static PROMPT: &str = "synthetic-load> ";
 
 fn prepare_input_line(line: &String) -> Vec<String> {
     let mut v: Vec<String> = line.split_ascii_whitespace().map(str::to_string).collect();

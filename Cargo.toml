@@ -9,3 +9,9 @@ clap-num = "1.1.1"
 rand = "0.8.5"
 rand_pcg = "0.3.1"
 rustyline = "14.0.0"
+
+[[bin]]
+name = "synthetic_load"
+
+[[bin]]
+name = "benchmark"
