@@ -1,5 +1,5 @@
 
-use std::{borrow::Borrow, io::{BufRead, BufReader, BufWriter, Read, Write}, os::unix::thread, process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, thread::sleep, time::{Duration, SystemTime, SystemTimeError}};
+use std::{borrow::Borrow, io::{BufRead, BufReader, BufWriter, Read, Write}, iter, os::unix::thread, process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, thread::sleep, time::{Duration, SystemTime, SystemTimeError}};
 use clap::{Parser, Subcommand};
 use clap_num::maybe_hex;
 
@@ -8,16 +8,71 @@ static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    
-    scanmem_program: String
+    /// Path to scanmem program to run.
+    #[arg(long)]
+    scanmem_program: String,
+
+    /// List of scanmem commands to perform on the syntetic load, it should be a list of command seperated by the ';' character, and need to end with the 'exit' command. Example: "= 1; exit".
+    #[arg(long)]
+    scanmem_commands: String,
+
+    /// Number of threads scanmem will use to scan, set to -1 if multi threading is not supported by the scanmem program. 
+    #[arg(short = 't', long, default_value_t = -1)]
+    nthreads: i32,
+
+
+    /// Minimum size of synthetic load at start (in bytes).
+    #[arg(long, default_value_t = 0x1_000_000u64)]
+    minbytes: u64,
+    /// Maximum size of synthetic load at end (in bytes).
+    #[arg(long, default_value_t = 0x1_000_000u64)]
+    maxbytes: u64,
+    /// Fixed increment added to size between each run (in bytes).
+    #[arg(long, default_value_t = 0x1_000_000u64)]
+    stepbytes: u64,
+    /// Multiplication factor applied to size between each run (applied after stepbytes) (in bytes) (floating point). 
+    #[arg(long, default_value_t = 1.0f64)]
+    stepfactor: f64,
+
+    /// Number of iterations per scenario.
+    #[arg(short = 'n', long, default_value_t = 20)]
+    iterations: usize,
+
+    /// Timeout test if time elapsed is longer than specified (in seconds), 0 disables timeout.
+    #[arg(short = 'T', long, default_value_t = 0)]
+    timeout: u64,
 
 }
 
 #[derive(Default, Debug)]
-struct BenchmarkReport {
+struct BenchmarkTiming {
     setup_time: Duration,
-    scanmem_time: Duration,
+    benchmark_times: Vec<Duration>,
     total_time: Duration
+}
+
+#[derive(Default, Debug)]
+struct BenchmarkResult {
+    synthetic_load_size: u64, 
+    synthetic_load_random_seed: u64,
+    timing: BenchmarkTiming,
+}
+
+#[derive(Default, Debug)]
+struct BenckmarkReport {
+    // metadata
+    scanmem_program: String,
+    scanmem_commands: String,
+    nthreads: i32,
+    minbytes: u64,
+    maxbytes: u64,
+    stepbytes: u64,
+    stepfactor: f64,
+    iterations: usize,
+    timeout: u64,
+
+    // results
+    results: Vec<BenchmarkResult>,
 }
 
 struct ChildProcess {
@@ -66,16 +121,25 @@ impl ChildProcess {
     }
 }
 
-fn print_stdout_line(stdout: &mut ChildStdout) {
-    let mut reader = BufReader::new(stdout);
-    let mut buf = String::new();
-    reader.read_line(&mut buf);
-    println!("{}", buf);
+fn perform_benchmark_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32) -> Result<(), String> {
+    
+    // Create scanmem child process
+    println!("Starting scanmem child process...");
+    let mut scanmem = ChildProcess::new(scanmem_program, format!("--pid={}", target_process_pid).as_str(), true)?;
+    for command in scanmem_commands {
+        scanmem.write_line(command)?;
+    }
+    
+    // Cleanup
+    scanmem.child_process.wait().unwrap();
+    println!("scanmem child process done");
+    
+    return Ok(())
 }
 
-fn perform_benchmark(scanmem_program: &str, scanmem_commands: Vec<&str>, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64) -> Result<BenchmarkReport, String> {
+fn perform_benchmark_scenario(scanmem_program: &str, scanmem_commands: &Vec<&str>, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iterations: usize) -> Result<BenchmarkTiming, String> {
 
-    let mut report = BenchmarkReport::default();
+    let mut report = BenchmarkTiming::default();
 
     let total_start_time = SystemTime::now();
 
@@ -90,28 +154,33 @@ fn perform_benchmark(scanmem_program: &str, scanmem_commands: Vec<&str>, synthet
 
     
     report.setup_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
-    
-    // Create scanmem child process
-    println!("Starting scanmem child process...");
-    let scanmem_start_time = SystemTime::now();
-    let mut scanmem = ChildProcess::new(scanmem_program, format!("--pid={}", synthetic_load.child_process.id()).as_str(), true)?;
-    //sleep(Duration::from_secs(1));
-    //scanmem.stdout.
-    for command in scanmem_commands {
-        scanmem.write_line(command)?;
+
+    report.benchmark_times.reserve(iterations);
+    for _ in 0..iterations {
+        let start = SystemTime::now();
+        perform_benchmark_iteration(scanmem_program, &scanmem_commands, synthetic_load.child_process.id())?;
+        report.benchmark_times.push(SystemTime::now().duration_since(start).map_err(|e|e.to_string())?)
     }
-    
-    // Cleanup
-    //synthetic_load.write_line("exit")?;
-    scanmem.child_process.wait().unwrap();
 
     synthetic_load.write_line(format!("exit").as_str())?;
     synthetic_load.child_process.wait().unwrap();
 
-    report.scanmem_time = SystemTime::now().duration_since(scanmem_start_time).map_err(|e|e.to_string())?;
     report.total_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
 
     return Ok(report)
+}
+
+fn parse_scanmem_commands(input: &str) -> Vec<&str> {
+
+    let ret: Vec<&str> = input.split(';').collect();
+
+    // check if last command is 'exit'
+    if let Some(last) = ret.last() {
+        if !last.trim_ascii().eq("exit") {
+            println!("Warning: scanmem commands does not exit with 'exit'!.");
+        }
+    }
+    return ret;
 }
 
 fn main() -> ExitCode {
@@ -120,9 +189,43 @@ fn main() -> ExitCode {
 
     let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(SYNTHETIC_LOAD_NAME);
     
-    let report_result = perform_benchmark(&cli.scanmem_program, vec!["= 1", "= 1", "exit"], synthetic_load_path.to_str().unwrap(), 0x10000000, 0x1);
+    
+    let mut report = BenckmarkReport::default();
+    report.scanmem_program = cli.scanmem_program;
+    report.scanmem_commands = cli.scanmem_commands;
+    report.nthreads = cli.nthreads;
+    report.minbytes = cli.minbytes;
+    report.maxbytes = cli.maxbytes;
+    report.stepbytes = cli.stepbytes;
+    report.stepfactor = cli.stepfactor;
+    report.iterations = cli.iterations;
+    report.timeout = cli.timeout;
 
-    println!("{:?}", report_result);
+    let scanmem_commands = parse_scanmem_commands(&report.scanmem_commands);
+
+    let mut step_size = report.minbytes;
+    while step_size >= report.minbytes && step_size <= report.maxbytes {
+        
+        let mut benchmark_result = BenchmarkResult::default();
+        benchmark_result.synthetic_load_size = step_size;
+        benchmark_result.synthetic_load_random_seed = 0x1; 
+
+        match perform_benchmark_scenario(&report.scanmem_program, &scanmem_commands, synthetic_load_path.to_str().unwrap(), benchmark_result.synthetic_load_size, benchmark_result.synthetic_load_random_seed, cli.iterations) {
+            Ok(t) => benchmark_result.timing = t,
+            Err(err) => {
+                println!("Benchmark failed: {}", err);
+            }
+        }
+
+        report.results.push(benchmark_result);
+
+        // next step
+        step_size += report.stepbytes;
+        step_size = ((step_size as f64) * report.stepfactor) as u64;
+    }
+
+
+    println!("{:?}", report);
 
     return ExitCode::SUCCESS
 }
