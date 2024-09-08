@@ -1,5 +1,5 @@
 
-use std::{borrow::Borrow, io::{BufRead, BufReader, BufWriter, Read, Write}, iter, os::unix::thread, process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, thread::sleep, time::{Duration, SystemTime, SystemTimeError}};
+use std::{borrow::Borrow, io::{BufRead, BufReader, BufWriter, Read, Write}, iter, os::unix::thread, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, thread::sleep, time::{Duration, SystemTime, SystemTimeError}};
 use clap::{Parser, Subcommand};
 use clap_num::maybe_hex;
 
@@ -19,7 +19,6 @@ struct Cli {
     /// Number of threads scanmem will use to scan, set to -1 if multi threading is not supported by the scanmem program. 
     #[arg(short = 't', long, default_value_t = -1)]
     nthreads: i32,
-
 
     /// Minimum size of synthetic load at start (in bytes).
     #[arg(long, default_value_t = 0x1_000_000u64)]
@@ -42,6 +41,9 @@ struct Cli {
     #[arg(short = 'T', long, default_value_t = 0)]
     timeout: u64,
 
+    /// Echo child process stdout and stderr in parent stdout and stderr.
+    #[arg(short = 'v', long, default_value_t = false)]
+    verbose: bool,
 }
 
 #[derive(Default, Debug)]
@@ -53,9 +55,20 @@ struct BenchmarkTiming {
 
 #[derive(Default, Debug)]
 struct BenchmarkResult {
+    // params
     synthetic_load_size: u64, 
     synthetic_load_random_seed: u64,
+    
+    // timings
     timing: BenchmarkTiming,
+
+    // aggregates (in milliseconds)
+    mean: f64,
+    median: f64,
+    min: f64,
+    max: f64,
+    standard_deviation: f64,
+
 }
 
 #[derive(Default, Debug)]
@@ -79,13 +92,15 @@ struct ChildProcess {
     child_process: Child,
     stdin: BufWriter<ChildStdin>,
     stdout: BufReader<ChildStdout>,
-    echo: bool
+    stderr: BufReader<ChildStderr>,
+    echo: bool,
 }
 
 impl ChildProcess {
     fn new(command: &str, args: &str, echo: bool) -> Result<ChildProcess, String> {
         let args_vec: Vec<&str> = args.split_ascii_whitespace().collect();
-        let mut c = match Command::new(command).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
+
+        let mut c = match Command::new(command).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
             Ok(c) => c,
             Err(e) => {
                 return Err(e.to_string())    
@@ -93,7 +108,9 @@ impl ChildProcess {
         };
         let stdin = BufWriter::new(c.stdin.take().unwrap());
         let stdout = BufReader::new(c.stdout.take().unwrap());
-        return Ok(ChildProcess{child_process: c, stdin: stdin, stdout: stdout, echo: echo})
+        let stderr = BufReader::new(c.stderr.take().unwrap());
+
+        return Ok(ChildProcess{child_process: c, stdin: stdin, stdout: stdout, stderr: stderr, echo: echo})
     }
 
     fn read_until_line(&mut self, condition_line: &str) -> Result<(), String> {
@@ -101,7 +118,7 @@ impl ChildProcess {
             let mut buf = String::new();
             self.stdout.read_line(&mut buf).map_err(|e|e.to_string())?;
             if self.echo {
-                print!("{}", buf);
+                print!("pid {} stdout: {}", self.child_process.id(), buf);
             }
             if buf.eq(format!("{}\n", condition_line).as_str()) {
                 return Ok(())
@@ -113,7 +130,7 @@ impl ChildProcess {
     fn write_line(&mut self, line: &str) -> Result<(), String> {
         let out = format!("{}\n", line);
         if self.echo {
-            print!("{}", out);
+            print!("pid {} stdin: {}", self.child_process.id(), out);
         }
         self.stdin.write_all(out.as_bytes()).map_err(|e|e.to_string())?;
         self.stdin.flush().map_err(|e|e.to_string())?;
@@ -121,11 +138,43 @@ impl ChildProcess {
     }
 }
 
-fn perform_benchmark_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32) -> Result<(), String> {
+impl Drop for ChildProcess {
+    fn drop(&mut self) {
+        if self.echo {
+            // Read whats left in the output pipes
+            loop {
+                let mut buf = String::new();
+                let len = self.stdout.read_line(&mut buf).unwrap();
+                if (len == 0) {
+                    break;
+                }
+                print!("pid {} stdout: {}", self.child_process.id(), buf);
+            }
+            loop {
+                let mut buf = String::new();
+                let len = self.stderr.read_line(&mut buf).unwrap();
+                if (len == 0) {
+                    break;
+                }
+                print!("pid {} stderr: {}", self.child_process.id(), buf);
+            }
+        }
+        println!("Dropping ChildProcess pid {}", self.child_process.id());
+    }
+}
+
+fn perform_benchmark_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: i32, verbose: bool) -> Result<(), String> {
     
     // Create scanmem child process
     println!("Starting scanmem child process...");
-    let mut scanmem = ChildProcess::new(scanmem_program, format!("--pid={}", target_process_pid).as_str(), true)?;
+    let args: String;
+    if nthreads == -1 {
+        args = format!("--pid={}", target_process_pid);
+    }
+    else {
+        args = format!("--pid={} -j={}", target_process_pid, nthreads);
+    }
+    let mut scanmem = ChildProcess::new(scanmem_program, args.as_str(), verbose)?;
     for command in scanmem_commands {
         scanmem.write_line(command)?;
     }
@@ -137,7 +186,7 @@ fn perform_benchmark_iteration(scanmem_program: &str, scanmem_commands: &Vec<&st
     return Ok(())
 }
 
-fn perform_benchmark_scenario(scanmem_program: &str, scanmem_commands: &Vec<&str>, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iterations: usize) -> Result<BenchmarkTiming, String> {
+fn perform_benchmark_scenario(scanmem_program: &str, scanmem_commands: &Vec<&str>, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iterations: usize, nthreads: i32, verbose: bool) -> Result<BenchmarkTiming, String> {
 
     let mut report = BenchmarkTiming::default();
 
@@ -145,7 +194,7 @@ fn perform_benchmark_scenario(scanmem_program: &str, scanmem_commands: &Vec<&str
 
     // Create synthetic_load child process and init
     println!("Starting synthetic_load child process...");
-    let mut synthetic_load = ChildProcess::new(synthetic_load_program, "",true)?;
+    let mut synthetic_load = ChildProcess::new(synthetic_load_program, "", verbose)?;
     println!("Child pid: {}", synthetic_load.child_process.id());
     synthetic_load.write_line(format!("set-memory-size {}", synthetic_load_size).as_str())?;
     synthetic_load.read_until_line("Done")?;
@@ -158,7 +207,7 @@ fn perform_benchmark_scenario(scanmem_program: &str, scanmem_commands: &Vec<&str
     report.benchmark_times.reserve(iterations);
     for _ in 0..iterations {
         let start = SystemTime::now();
-        perform_benchmark_iteration(scanmem_program, &scanmem_commands, synthetic_load.child_process.id())?;
+        perform_benchmark_iteration(scanmem_program, &scanmem_commands, synthetic_load.child_process.id(), nthreads, verbose)?;
         report.benchmark_times.push(SystemTime::now().duration_since(start).map_err(|e|e.to_string())?)
     }
 
@@ -210,12 +259,15 @@ fn main() -> ExitCode {
         benchmark_result.synthetic_load_size = step_size;
         benchmark_result.synthetic_load_random_seed = 0x1; 
 
-        match perform_benchmark_scenario(&report.scanmem_program, &scanmem_commands, synthetic_load_path.to_str().unwrap(), benchmark_result.synthetic_load_size, benchmark_result.synthetic_load_random_seed, cli.iterations) {
+        match perform_benchmark_scenario(&report.scanmem_program, &scanmem_commands, synthetic_load_path.to_str().unwrap(), benchmark_result.synthetic_load_size, benchmark_result.synthetic_load_random_seed, cli.iterations, report.nthreads, cli.verbose) {
             Ok(t) => benchmark_result.timing = t,
             Err(err) => {
                 println!("Benchmark failed: {}", err);
             }
         }
+
+        // compute aggregates
+        
 
         report.results.push(benchmark_result);
 
