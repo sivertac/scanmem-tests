@@ -62,7 +62,7 @@ struct BenchmarkResult {
     // timings
     timing: BenchmarkTiming,
 
-    // aggregates (in milliseconds)
+    // aggregates (in seconds)
     mean: f64,
     median: f64,
     min: f64,
@@ -232,6 +232,19 @@ fn parse_scanmem_commands(input: &str) -> Vec<&str> {
     return ret;
 }
 
+fn compute_median<I>(values: I) -> f64 where I: Iterator<Item = f64>, {
+    let mut data: Vec<f64> = values.collect();
+    data.sort_by(|a,b|a.total_cmp(b));
+    return data[data.len() / 2];
+}
+
+fn compute_standard_deviation<I>(values: I, mean: f64) -> f64 where I: Iterator<Item = f64>, {
+    let data: Vec<f64> = values.collect();
+    let len = data.len();
+    let sum = data.into_iter().reduce(|acc: f64, e: f64| acc + (e - mean)).unwrap();
+    return f64::sqrt(1.0f64 / len as f64 * sum.powi(2));
+}
+
 fn main() -> ExitCode {
 
     let cli = Cli::parse();
@@ -267,7 +280,11 @@ fn main() -> ExitCode {
         }
 
         // compute aggregates
-        
+        benchmark_result.max = benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()).max_by(|a,b|a.total_cmp(b)).unwrap();
+        benchmark_result.min = benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()).min_by(|a,b|a.total_cmp(b)).unwrap();
+        benchmark_result.mean = benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()).sum::<f64>() / benchmark_result.timing.benchmark_times.len() as f64;
+        benchmark_result.standard_deviation = compute_standard_deviation(benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()), benchmark_result.mean);
+        benchmark_result.median = compute_median(benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()));
 
         report.results.push(benchmark_result);
 
