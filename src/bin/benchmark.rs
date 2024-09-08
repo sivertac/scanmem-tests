@@ -1,7 +1,6 @@
 
-use std::{borrow::Borrow, io::{BufRead, BufReader, BufWriter, Read, Write}, iter, os::unix::thread, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, thread::sleep, time::{Duration, SystemTime, SystemTimeError}};
-use clap::{Parser, Subcommand};
-use clap_num::maybe_hex;
+use std::{io::{BufRead, BufReader, BufWriter, Write}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
+use clap::Parser;
 
 static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
 
@@ -145,7 +144,7 @@ impl Drop for ChildProcess {
             loop {
                 let mut buf = String::new();
                 let len = self.stdout.read_line(&mut buf).unwrap();
-                if (len == 0) {
+                if len == 0 {
                     break;
                 }
                 print!("pid {} stdout: {}", self.child_process.id(), buf);
@@ -153,7 +152,7 @@ impl Drop for ChildProcess {
             loop {
                 let mut buf = String::new();
                 let len = self.stderr.read_line(&mut buf).unwrap();
-                if (len == 0) {
+                if len == 0 {
                     break;
                 }
                 print!("pid {} stderr: {}", self.child_process.id(), buf);
