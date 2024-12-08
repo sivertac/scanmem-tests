@@ -1,5 +1,5 @@
 
-use std::{io::{BufRead, BufReader, BufWriter, Write}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
+use std::{io::{BufRead, BufReader, BufWriter, Write}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, ExitStatus, Stdio}, time::{Duration, SystemTime}};
 use clap::Parser;
 
 static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
@@ -192,7 +192,10 @@ fn perform_benchmark_iteration(scanmem_program: &str, scanmem_commands: &Vec<&st
     }
     
     // Cleanup
-    scanmem.child_process.wait().unwrap();
+    let scanmem_exit_status = scanmem.child_process.wait().unwrap();
+    if !scanmem_exit_status.success() {
+        return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
+    }
     println!("scanmem child process done");
     
     return Ok(())
@@ -224,7 +227,10 @@ fn perform_benchmark_scenario(scanmem_program: &str, scanmem_commands: &Vec<&str
     }
 
     synthetic_load.write_line(format!("exit").as_str())?;
-    synthetic_load.child_process.wait().unwrap();
+    let synthetic_load_exit_status = synthetic_load.child_process.wait().unwrap();
+    if !synthetic_load_exit_status.success() {
+        return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string()));
+    }
 
     report.total_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
 
