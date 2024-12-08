@@ -112,19 +112,36 @@ impl ChildProcess {
         return Ok(ChildProcess{child_process: c, stdin: stdin, stdout: stdout, stderr: stderr, echo: echo})
     }
 
-    fn read_until_line(&mut self, condition_line: &str) -> Result<(), String> {
+    /// Read 1 line from stdout and return it.
+    fn read_line_stdout(&mut self) -> Result<String, String> {
+        let mut buf = String::new();
+        self.stdout.read_line(&mut buf).map_err(|e|e.to_string())?;
+        if self.echo {
+            print!("pid {} stdout: {}", self.child_process.id(), buf);
+        }
+        return Ok(buf)
+    }
+
+    /// Read 1 line from stderr and return it.
+    fn read_line_stderr(&mut self) -> Result<String, String> {
+        let mut buf = String::new();
+        self.stderr.read_line(&mut buf).map_err(|e|e.to_string())?;
+        if self.echo {
+            print!("pid {} stderr: {}", self.child_process.id(), buf);
+        }
+        return Ok(buf)
+    }
+
+    /// Read from stdout until exact line is present.
+    /// Discards read lines.
+    fn read_until_line_stdout(&mut self, condition_line: &str) -> Result<(), String> {
         loop {
-            let mut buf = String::new();
-            self.stdout.read_line(&mut buf).map_err(|e|e.to_string())?;
-            if self.echo {
-                print!("pid {} stdout: {}", self.child_process.id(), buf);
-            }
+            let buf = self.read_line_stdout()?;
             if buf.eq(format!("{}\n", condition_line).as_str()) {
                 return Ok(())
             }
         }
     }
-
 
     fn write_line(&mut self, line: &str) -> Result<(), String> {
         let out = format!("{}\n", line);
@@ -142,20 +159,16 @@ impl Drop for ChildProcess {
         if self.echo {
             // Read whats left in the output pipes
             loop {
-                let mut buf = String::new();
-                let len = self.stdout.read_line(&mut buf).unwrap();
-                if len == 0 {
+                let buf = self.read_line_stdout().unwrap();                
+                if buf.len() == 0 {
                     break;
                 }
-                print!("pid {} stdout: {}", self.child_process.id(), buf);
             }
             loop {
-                let mut buf = String::new();
-                let len = self.stderr.read_line(&mut buf).unwrap();
-                if len == 0 {
+                let buf = self.read_line_stderr().unwrap();
+                if buf.len() == 0 {
                     break;
                 }
-                print!("pid {} stderr: {}", self.child_process.id(), buf);
             }
         }
         println!("Dropping ChildProcess pid {}", self.child_process.id());
@@ -196,9 +209,9 @@ fn perform_benchmark_scenario(scanmem_program: &str, scanmem_commands: &Vec<&str
     let mut synthetic_load = ChildProcess::new(synthetic_load_program, "", verbose)?;
     println!("Child pid: {}", synthetic_load.child_process.id());
     synthetic_load.write_line(format!("set-memory-size {}", synthetic_load_size).as_str())?;
-    synthetic_load.read_until_line("Done")?;
+    synthetic_load.read_until_line_stdout("Done")?;
     synthetic_load.write_line(format!("fill-random {}", synthetic_load_random_seed).as_str())?;
-    synthetic_load.read_until_line("Done")?;
+    synthetic_load.read_until_line_stdout("Done")?;
 
     
     report.setup_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
