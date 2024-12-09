@@ -1,5 +1,5 @@
 
-use std::{io::{BufRead, BufReader, BufWriter, Write}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
+use std::{io::{BufRead, BufReader, BufWriter, Write}, process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
 use clap::Parser;
 
 static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
@@ -196,50 +196,67 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
 
     let args_vec: Vec<&str> = args.split_ascii_whitespace().collect();
 
-    let mut scanmem_process = match Command::new(scanmem_program).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            return Err(e.to_string())    
-        }
-    };
-    let mut stdin = BufWriter::new(scanmem_process.stdin.take().unwrap());
-    let mut stdout = BufReader::new(scanmem_process.stdout.take().unwrap());
-    let mut stderr = BufReader::new(scanmem_process.stderr.take().unwrap());
+    let scanmem_exit_status;
 
-    let pid = scanmem_process.id();
+    // I don't like this.
+    let error_arc  = std::sync::Arc::<std::sync::atomic::AtomicBool>::new(false.into());
+    let error_arc_2  = error_arc.clone();
 
-    // Spawn threads to drain stdout and stderr.
-    let stdout_thread = std::thread::spawn(move || {
-        loop {
-            let buf = read_line_stdout(&mut stdout, pid, verbose).unwrap();
-            if buf.len() == 0 {
-                break;
+    {
+        let mut scanmem_process = match Command::new(scanmem_program).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(e.to_string())    
             }
-        }
-    });
+        };
+        let mut stdin = BufWriter::new(scanmem_process.stdin.take().unwrap());
+        let mut stdout = BufReader::new(scanmem_process.stdout.take().unwrap());
+        let mut stderr = BufReader::new(scanmem_process.stderr.take().unwrap());
 
-    let stderr_thread = std::thread::spawn(move || {
-        loop {
-            let buf = read_line_stderr(&mut stderr, pid, verbose).unwrap();
-            if buf.len() == 0 {
-                break;
+        let pid = scanmem_process.id();
+
+        // Spawn threads to drain stdout and stderr.
+        let stdout_thread = std::thread::spawn(move || {
+            drain_stdout(&mut stdout, pid, verbose).unwrap();
+        });
+
+        let stderr_thread = std::thread::spawn(move || {
+            let error_arc_2 = error_arc_2;
+            loop {
+                let buf = read_line_stderr(&mut stderr, pid, verbose).unwrap();
+                if buf.len() == 0 {
+                    break;
+                }
+                
+                // Check if we have a permission error when running scanmem.
+                if buf.contains("Operation not permitted") {
+                    error_arc_2.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
             }
-        }
-    });
+        });
 
-    for command in scanmem_commands {
-        write_line(&mut stdin, command, pid, verbose)?;
+        for command in scanmem_commands {
+            write_line(&mut stdin, command, pid, verbose)?;
+        }
+
+        // Drain output pipes.
+        stdout_thread.join().unwrap();
+        stderr_thread.join().unwrap();
+    
+        // Cleanup
+        scanmem_exit_status = scanmem_process.wait().unwrap();
     }
 
-    // Drain output pipes.
-    stdout_thread.join().unwrap();
-    stderr_thread.join().unwrap();
-    
-    // Cleanup
-    let scanmem_exit_status = scanmem_process.wait().unwrap();
     if !scanmem_exit_status.success() {
         return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
     }
+
+    let error = error_arc.load(std::sync::atomic::Ordering::Relaxed);
+
+    if error {
+        return Err(format!("Error: Interactive error detected during execution of scanmem, look at stderr output for more info"));
+    }
+
     println!("scanmem child process done");
     
     return Ok(())
