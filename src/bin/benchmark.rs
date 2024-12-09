@@ -12,7 +12,7 @@ struct Cli {
     scanmem_program: String,
 
     /// Benchmark to run, use --list_benchmarks to list available benchmarks.
-    #[arg(long)]
+    #[arg(short = 'b', long)]
     benchmark: Option<String>,
 
     /// Number of threads scanmem will use to scan, set to -1 if multi threading is not supported by the scanmem program. 
@@ -94,92 +94,64 @@ struct BenckmarkReport {
     results: Vec<BenchmarkResult>,
 }
 
-struct ChildProcess {
-    child_process: Child,
-    stdin: BufWriter<ChildStdin>,
-    stdout: BufReader<ChildStdout>,
-    stderr: BufReader<ChildStderr>,
-    echo: bool,
+fn read_line_stream<S: BufRead>(stream: &mut S, pid: u32, echo: bool, name: &str) -> Result<String, String> {
+    let mut buf = String::new();
+    stream.read_line(&mut buf).map_err(|e|e.to_string())?;
+    if echo {
+        print!("pid {} {}: {}", pid, name, buf);
+    }
+    return Ok(buf)
 }
 
-impl ChildProcess {
-    fn new(command: &str, args: &str, echo: bool) -> Result<ChildProcess, String> {
-        let args_vec: Vec<&str> = args.split_ascii_whitespace().collect();
+/// Read 1 line from stdout and return it, blocking.
+fn read_line_stdout(stdout: & mut BufReader<ChildStdout>, pid: u32, echo: bool) -> Result<String, String> {
+    return read_line_stream(stdout, pid, echo, "stdout");
+}
 
-        let mut c = match Command::new(command).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                return Err(e.to_string())    
-            }
-        };
-        let stdin = BufWriter::new(c.stdin.take().unwrap());
-        let stdout = BufReader::new(c.stdout.take().unwrap());
-        let stderr = BufReader::new(c.stderr.take().unwrap());
+/// Read 1 line from stderr and return it, blocking.
+fn read_line_stderr(stderr: & mut BufReader<ChildStderr>, pid: u32, echo: bool) -> Result<String, String> {
+    return read_line_stream(stderr, pid, echo, "stderr");
+}
 
-        return Ok(ChildProcess{child_process: c, stdin: stdin, stdout: stdout, stderr: stderr, echo: echo})
-    }
-
-    /// Read 1 line from stdout and return it.
-    fn read_line_stdout(&mut self) -> Result<String, String> {
-        let mut buf = String::new();
-        self.stdout.read_line(&mut buf).map_err(|e|e.to_string())?;
-        if self.echo {
-            print!("pid {} stdout: {}", self.child_process.id(), buf);
+/// Read from stdout until exact line is present.
+/// Discards read lines.
+fn read_until_line_stdout(stdout: & mut BufReader<ChildStdout>, condition_line: &str, pid: u32, echo: bool) -> Result<(), String> {
+    loop {
+        let buf = read_line_stdout(stdout, pid, echo)?;
+        if buf.eq(format!("{}\n", condition_line).as_str()) {
+            return Ok(())
         }
-        return Ok(buf)
-    }
-
-    /// Read 1 line from stderr and return it.
-    fn read_line_stderr(&mut self) -> Result<String, String> {
-        let mut buf = String::new();
-        self.stderr.read_line(&mut buf).map_err(|e|e.to_string())?;
-        if self.echo {
-            print!("pid {} stderr: {}", self.child_process.id(), buf);
-        }
-        return Ok(buf)
-    }
-
-    /// Read from stdout until exact line is present.
-    /// Discards read lines.
-    fn read_until_line_stdout(&mut self, condition_line: &str) -> Result<(), String> {
-        loop {
-            let buf = self.read_line_stdout()?;
-            if buf.eq(format!("{}\n", condition_line).as_str()) {
-                return Ok(())
-            }
-        }
-    }
-
-    fn write_line(&mut self, line: &str) -> Result<(), String> {
-        let out = format!("{}\n", line);
-        if self.echo {
-            print!("pid {} stdin: {}", self.child_process.id(), out);
-        }
-        self.stdin.write_all(out.as_bytes()).map_err(|e|e.to_string())?;
-        self.stdin.flush().map_err(|e|e.to_string())?;
-        return Ok(())
     }
 }
 
-impl Drop for ChildProcess {
-    fn drop(&mut self) {
-        if self.echo {
-            // Read whats left in the output pipes
-            loop {
-                let buf = self.read_line_stdout().unwrap();                
-                if buf.len() == 0 {
-                    break;
-                }
-            }
-            loop {
-                let buf = self.read_line_stderr().unwrap();
-                if buf.len() == 0 {
-                    break;
-                }
-            }
-        }
-        println!("Dropping ChildProcess pid {}", self.child_process.id());
+// Write line to stream, blocking.
+fn write_line(stdin: &mut BufWriter<ChildStdin>, line: &str, pid: u32, echo: bool) -> Result<(), String> {
+    let out = format!("{}\n", line);
+    if echo {
+        print!("pid {} stdin: {}", pid, out);
     }
+    stdin.write_all(out.as_bytes()).map_err(|e|e.to_string())?;
+    stdin.flush().map_err(|e|e.to_string())?;
+    return Ok(())
+}
+
+// Read whats left in the output pipe.
+fn drain_stream<S: BufRead>(stream: &mut S, pid: u32, echo: bool, name: &str) -> Result<(), String> {
+    loop {
+        let buf = read_line_stream(stream, pid, echo, name)?;                
+        if buf.len() == 0 {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn drain_stdout(stdout: & mut BufReader<ChildStdout>, pid: u32, echo: bool) -> Result<(), String> {
+    return drain_stream(stdout, pid, echo, "stdout");
+}
+
+fn drain_stderr(stderr: & mut BufReader<ChildStderr>, pid: u32, echo: bool) -> Result<(), String> {
+    return drain_stream(stderr, pid, echo, "stderr");
 }
 
 fn parse_scanmem_commands(input: &str) -> Vec<&str> {
@@ -221,13 +193,50 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
     else {
         args = format!("--pid={} -j={}", target_process_pid, nthreads);
     }
-    let mut scanmem = ChildProcess::new(scanmem_program, args.as_str(), verbose)?;
+
+    let args_vec: Vec<&str> = args.split_ascii_whitespace().collect();
+
+    let mut scanmem_process = match Command::new(scanmem_program).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(e.to_string())    
+        }
+    };
+    let mut stdin = BufWriter::new(scanmem_process.stdin.take().unwrap());
+    let mut stdout = BufReader::new(scanmem_process.stdout.take().unwrap());
+    let mut stderr = BufReader::new(scanmem_process.stderr.take().unwrap());
+
+    let pid = scanmem_process.id();
+
+    // Spawn threads to drain stdout and stderr.
+    let stdout_thread = std::thread::spawn(move || {
+        loop {
+            let buf = read_line_stdout(&mut stdout, pid, verbose).unwrap();
+            if buf.len() == 0 {
+                break;
+            }
+        }
+    });
+
+    let stderr_thread = std::thread::spawn(move || {
+        loop {
+            let buf = read_line_stderr(&mut stderr, pid, verbose).unwrap();
+            if buf.len() == 0 {
+                break;
+            }
+        }
+    });
+
     for command in scanmem_commands {
-        scanmem.write_line(command)?;
+        write_line(&mut stdin, command, pid, verbose)?;
     }
+
+    // Drain output pipes.
+    stdout_thread.join().unwrap();
+    stderr_thread.join().unwrap();
     
     // Cleanup
-    let scanmem_exit_status = scanmem.child_process.wait().unwrap();
+    let scanmem_exit_status = scanmem_process.wait().unwrap();
     if !scanmem_exit_status.success() {
         return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
     }
@@ -238,33 +247,46 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
 
 fn scenario_func_fill_random(scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iterations: usize, nthreads: i32, verbose: bool) -> Result<BenchmarkTiming, String> {
 
-    let scanmem_commands = vec!["= 1", "q"];
+    let scanmem_commands = vec!["= 1", "exit"];
 
     let mut report = BenchmarkTiming::default();
 
     let total_start_time = SystemTime::now();
 
-    // Create synthetic_load child process and init
+    // Create synthetic_load child process and init.
     println!("Starting synthetic_load child process...");
-    let mut synthetic_load = ChildProcess::new(synthetic_load_program, "", verbose)?;
-    println!("Child pid: {}", synthetic_load.child_process.id());
-    synthetic_load.write_line(format!("set-memory-size {}", synthetic_load_size).as_str())?;
-    synthetic_load.read_until_line_stdout("Done")?;
-    synthetic_load.write_line(format!("fill-random {}", synthetic_load_random_seed).as_str())?;
-    synthetic_load.read_until_line_stdout("Done")?;
-
     
+    let mut synthetic_load_process = match Command::new(synthetic_load_program).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(e.to_string())    
+        }
+    };
+    let mut stdin = BufWriter::new(synthetic_load_process.stdin.take().unwrap());
+    let mut stdout = BufReader::new(synthetic_load_process.stdout.take().unwrap());
+    let pid = synthetic_load_process.id();
+
+    // Init synthetic_load.
+    write_line(&mut stdin, format!("set-memory-size {}", synthetic_load_size).as_str(), pid, verbose)?;
+    read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
+    write_line(&mut stdin, format!("fill-random {}", synthetic_load_random_seed).as_str(), pid, verbose)?;
+    read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
+
+    // Run benchmark.
     report.setup_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
 
     report.benchmark_times.reserve(iterations);
     for _ in 0..iterations {
         let start = SystemTime::now();
-        scenario_func_fill_random_iteration(scanmem_program, &scanmem_commands, synthetic_load.child_process.id(), nthreads, verbose)?;
+        scenario_func_fill_random_iteration(scanmem_program, &scanmem_commands, pid, nthreads, verbose)?;
         report.benchmark_times.push(SystemTime::now().duration_since(start).map_err(|e|e.to_string())?)
     }
 
-    synthetic_load.write_line(format!("exit").as_str())?;
-    let synthetic_load_exit_status = synthetic_load.child_process.wait().unwrap();
+    // Exit synthetic_load.
+    write_line(&mut stdin, format!("exit").as_str(), pid, verbose)?;
+    drain_stdout(&mut stdout, pid, verbose)?;
+
+    let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {
         return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string()));
     }
