@@ -1,5 +1,5 @@
 
-use std::{fs::File, io::{BufRead, BufReader, BufWriter, Write}, path, process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
+use std::{io::{BufRead, BufReader, BufWriter, Write}, path, process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
 use clap::Parser;
 
 static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
@@ -57,10 +57,9 @@ struct Cli {
 }
 
 #[derive(Default, Debug)]
-struct BenchmarkTiming {
-    setup_time: Duration,
-    benchmark_times: Vec<Duration>,
-    total_time: Duration
+struct BenchmarkIteration {
+    benchmark_time: Duration,
+    end_matches: u64, // Number of matches found at end of iteration
 }
 
 #[derive(Default, Debug)]
@@ -69,8 +68,10 @@ struct BenchmarkResult {
     synthetic_load_size: u64, 
     synthetic_load_random_seed: u64,
     
-    // timings
-    timing: BenchmarkTiming,
+    setup_time: Duration,
+    total_time: Duration,
+
+    iterations: Vec<BenchmarkIteration>,
 
     // aggregates (in seconds)
     mean: f64,
@@ -91,7 +92,7 @@ struct BenckmarkReport {
     maxbytes: u64,
     stepbytes: u64,
     stepfactor: f64,
-    iterations: usize,
+    iteration_count: usize,
     timeout: u64,
 
     // results
@@ -121,10 +122,10 @@ fn benchmark_report_to_csv(report: &BenckmarkReport) -> String {
     for result in &report.results {
         let synthetic_load_size = result.synthetic_load_size.to_string();
         let synthetic_load_random_seed = result.synthetic_load_random_seed.to_string();
-        let setup_time = result.timing.setup_time.as_millis().to_string();
-        let total_time = result.timing.total_time.as_millis().to_string();
-        for iteration in 0..result.timing.benchmark_times.len() {
-            let benchmark_time = result.timing.benchmark_times[iteration].as_millis().to_string();
+        let setup_time = result.setup_time.as_millis().to_string();
+        let total_time = result.total_time.as_millis().to_string();
+        for iteration in 0..result.iterations.len() {
+            let benchmark_time = result.iterations[iteration].benchmark_time.as_millis().to_string();
             ret.push_str(&create_csv_row(&vec![scanmem_program, benchmark_name, &nthreads, &synthetic_load_size, &synthetic_load_random_seed, &setup_time, &total_time, &iteration.to_string(), &benchmark_time]));
             ret.push('\n');
         }
@@ -219,7 +220,7 @@ fn compute_standard_deviation<I>(values: I, mean: f64) -> f64 where I: Iterator<
     return f64::sqrt(1.0f64 / len as f64 * sum.powi(2));
 }
 
-type BenchmarkScenarioFunc = fn(scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iterations: usize, nthreads: i32, verbose: bool) -> Result<BenchmarkTiming, String>;
+type BenchmarkScenarioFunc = fn(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: i32, verbose: bool) -> Result<(), String>;
 
 fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: i32, verbose: bool) -> Result<(), String> {
     
@@ -301,11 +302,11 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
     return Ok(())
 }
 
-fn scenario_func_fill_random(scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iterations: usize, nthreads: i32, verbose: bool) -> Result<BenchmarkTiming, String> {
+fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: i32, verbose: bool) -> Result<(), String> {
 
     let scanmem_commands = vec!["= 1", "exit"];
 
-    let mut report = BenchmarkTiming::default();
+    let iterations = &mut result.iterations;
 
     let total_start_time = SystemTime::now();
 
@@ -329,13 +330,15 @@ fn scenario_func_fill_random(scanmem_program: &str, synthetic_load_program: &str
     read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
 
     // Run benchmark.
-    report.setup_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
+    result.setup_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
 
-    report.benchmark_times.reserve(iterations);
-    for _ in 0..iterations {
+    iterations.reserve(iteration_count);
+    for _ in 0..iteration_count {
         let start = SystemTime::now();
         scenario_func_fill_random_iteration(scanmem_program, &scanmem_commands, pid, nthreads, verbose)?;
-        report.benchmark_times.push(SystemTime::now().duration_since(start).map_err(|e|e.to_string())?)
+        
+        let duration = SystemTime::now().duration_since(start).map_err(|e|e.to_string())?;
+        iterations.push(BenchmarkIteration{benchmark_time: duration, end_matches: 0});
     }
 
     // Exit synthetic_load.
@@ -349,9 +352,9 @@ fn scenario_func_fill_random(scanmem_program: &str, synthetic_load_program: &str
 
     println!("synthetic_load child process done");
 
-    report.total_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
+    result.total_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
 
-    return Ok(report)
+    return Ok(())
 }
 
 struct BenchmarkScenario {
@@ -409,20 +412,22 @@ fn main() -> ExitCode {
     report.maxbytes = cli.maxbytes;
     report.stepbytes = cli.stepbytes;
     report.stepfactor = cli.stepfactor;
-    report.iterations = cli.iterations;
+    report.iteration_count = cli.iterations;
     report.timeout = cli.timeout;
 
     let mut step_size = report.minbytes;
     while step_size >= report.minbytes && step_size <= report.maxbytes {
         
         let mut benchmark_result = BenchmarkResult::default();
-        benchmark_result.synthetic_load_size = step_size;
-        benchmark_result.synthetic_load_random_seed = cli.synthetic_load_random_seed; 
 
+        let synthetic_load_size = step_size;
+        let synthetic_load_random_seed = cli.synthetic_load_random_seed;
 
+        benchmark_result.synthetic_load_size = synthetic_load_size;
+        benchmark_result.synthetic_load_random_seed = synthetic_load_random_seed; 
 
-        match (benchmark_scenario.perform_benchmark_scenario_func)(&report.scanmem_program, synthetic_load_path.to_str().unwrap(), benchmark_result.synthetic_load_size, benchmark_result.synthetic_load_random_seed, cli.iterations, report.nthreads, cli.verbose) {
-            Ok(t) => benchmark_result.timing = t,
+        match (benchmark_scenario.perform_benchmark_scenario_func)(&mut benchmark_result, &report.scanmem_program, synthetic_load_path.to_str().unwrap(), synthetic_load_size, synthetic_load_random_seed, cli.iterations, report.nthreads, cli.verbose) {
+            Ok(()) => {},
             Err(err) => {
                 println!("Benchmark failed: {}", err);
                 return ExitCode::FAILURE;
@@ -430,11 +435,11 @@ fn main() -> ExitCode {
         }
 
         // compute aggregates
-        benchmark_result.max = benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()).max_by(|a,b|a.total_cmp(b)).unwrap();
-        benchmark_result.min = benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()).min_by(|a,b|a.total_cmp(b)).unwrap();
-        benchmark_result.mean = benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()).sum::<f64>() / benchmark_result.timing.benchmark_times.len() as f64;
-        benchmark_result.standard_deviation = compute_standard_deviation(benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()), benchmark_result.mean);
-        benchmark_result.median = compute_median(benchmark_result.timing.benchmark_times.iter().map(|e|e.as_secs_f64()));
+        benchmark_result.max = benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()).max_by(|a,b|a.total_cmp(b)).unwrap();
+        benchmark_result.min = benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()).min_by(|a,b|a.total_cmp(b)).unwrap();
+        benchmark_result.mean = benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()).sum::<f64>() / benchmark_result.iterations.len() as f64;
+        benchmark_result.standard_deviation = compute_standard_deviation(benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()), benchmark_result.mean);
+        benchmark_result.median = compute_median(benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()));
 
         report.results.push(benchmark_result);
 
@@ -443,8 +448,8 @@ fn main() -> ExitCode {
         step_size = ((step_size as f64) * report.stepfactor) as u64;
     }
 
-
-    //println!("{:?}", report);
+    println!("Internal report:");
+    println!("{:?}", report);
 
     let csv_data = benchmark_report_to_csv(&report);
 
@@ -453,6 +458,7 @@ fn main() -> ExitCode {
         file.write_all(csv_data.as_bytes()).unwrap();
     }
     else {
+        println!("CSV data:");
         println!("{}", csv_data);
     }
 
