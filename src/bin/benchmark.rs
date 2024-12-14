@@ -1,5 +1,5 @@
 
-use std::{io::{BufRead, BufReader, BufWriter, Write}, process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
+use std::{fs::File, io::{BufRead, BufReader, BufWriter, Write}, path, process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
 use clap::Parser;
 
 static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
@@ -46,6 +46,10 @@ struct Cli {
     /// List available benchmarks amd exit.
     #[arg(short = 'l', long, default_value_t = false)]
     list_benchmarks: bool,
+
+    /// csv output
+    #[arg[long]]
+    csv_output: Option<path::PathBuf>,
 
     /// Echo child process stdout and stderr in parent stdout and stderr.
     #[arg(short = 'v', long, default_value_t = false)]
@@ -94,10 +98,45 @@ struct BenckmarkReport {
     results: Vec<BenchmarkResult>,
 }
 
+fn create_csv_row(elements: &Vec<&str>) -> String {
+    let mut ret = String::new();
+    for e in elements {
+        ret.push_str(e);
+        ret.push(',');
+    }
+    return ret;
+}
+
+fn benchmark_report_to_csv(report: &BenckmarkReport) -> String {
+    let mut ret = String::new();
+
+    let scanmem_program = &report.scanmem_program;
+    let benchmark_name = &report.benchmark_name;
+    let nthreads = report.nthreads.to_string();
+
+
+    // Create header.
+    ret.push_str(&create_csv_row(&vec!["scanmem_program", "benchmark_name", "nthreads", "synthetic_load_size(bytes)", "synthetic_load_random_seed", "setup_time(ms)", "total_time(ms)", "iteration", "benchmark_time(ms)"]));
+    ret.push('\n');
+    for result in &report.results {
+        let synthetic_load_size = result.synthetic_load_size.to_string();
+        let synthetic_load_random_seed = result.synthetic_load_random_seed.to_string();
+        let setup_time = result.timing.setup_time.as_millis().to_string();
+        let total_time = result.timing.total_time.as_millis().to_string();
+        for iteration in 0..result.timing.benchmark_times.len() {
+            let benchmark_time = result.timing.benchmark_times[iteration].as_millis().to_string();
+            ret.push_str(&create_csv_row(&vec![scanmem_program, benchmark_name, &nthreads, &synthetic_load_size, &synthetic_load_random_seed, &setup_time, &total_time, &iteration.to_string(), &benchmark_time]));
+            ret.push('\n');
+        }
+    }
+
+    return ret;
+}
+
 fn read_line_stream<S: BufRead>(stream: &mut S, pid: u32, echo: bool, name: &str) -> Result<String, String> {
     let mut buf = String::new();
     stream.read_line(&mut buf).map_err(|e|e.to_string())?;
-    if echo {
+    if echo && !buf.is_empty() {
         print!("pid {} {}: {}", pid, name, buf);
     }
     return Ok(buf)
@@ -191,7 +230,7 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
         args = format!("--pid={}", target_process_pid);
     }
     else {
-        args = format!("--pid={} -j={}", target_process_pid, nthreads);
+        args = format!("--pid={} --jobs={}", target_process_pid, nthreads);
     }
 
     let args_vec: Vec<&str> = args.split_ascii_whitespace().collect();
@@ -308,6 +347,8 @@ fn scenario_func_fill_random(scanmem_program: &str, synthetic_load_program: &str
         return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string()));
     }
 
+    println!("synthetic_load child process done");
+
     report.total_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
 
     return Ok(report)
@@ -378,10 +419,13 @@ fn main() -> ExitCode {
         benchmark_result.synthetic_load_size = step_size;
         benchmark_result.synthetic_load_random_seed = cli.synthetic_load_random_seed; 
 
+
+
         match (benchmark_scenario.perform_benchmark_scenario_func)(&report.scanmem_program, synthetic_load_path.to_str().unwrap(), benchmark_result.synthetic_load_size, benchmark_result.synthetic_load_random_seed, cli.iterations, report.nthreads, cli.verbose) {
             Ok(t) => benchmark_result.timing = t,
             Err(err) => {
                 println!("Benchmark failed: {}", err);
+                return ExitCode::FAILURE;
             }
         }
 
@@ -400,7 +444,17 @@ fn main() -> ExitCode {
     }
 
 
-    println!("{:?}", report);
+    //println!("{:?}", report);
+
+    let csv_data = benchmark_report_to_csv(&report);
+
+    if let Some(csv_output) = cli.csv_output {
+        let mut file = std::fs::File::create(csv_output).unwrap();
+        file.write_all(csv_data.as_bytes()).unwrap();
+    }
+    else {
+        println!("{}", csv_data);
+    }
 
     return ExitCode::SUCCESS
 }
