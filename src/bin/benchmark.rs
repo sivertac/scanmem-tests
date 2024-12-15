@@ -59,7 +59,7 @@ struct Cli {
 #[derive(Default, Debug)]
 struct BenchmarkIteration {
     benchmark_time: Duration,
-    end_matches: u64, // Number of matches found at end of iteration
+    match_count: u64, // Number of matches found at end of iteration
 }
 
 #[derive(Default, Debug)]
@@ -117,7 +117,7 @@ fn benchmark_report_to_csv(report: &BenckmarkReport) -> String {
 
 
     // Create header.
-    ret.push_str(&create_csv_row(&vec!["scanmem_program", "benchmark_name", "nthreads", "synthetic_load_size(bytes)", "synthetic_load_random_seed", "setup_time(ms)", "total_time(ms)", "iteration", "benchmark_time(ms)"]));
+    ret.push_str(&create_csv_row(&vec!["scanmem_program", "benchmark_name", "nthreads", "synthetic_load_size(bytes)", "synthetic_load_random_seed", "setup_time(ms)", "total_time(ms)", "iteration", "benchmark_time(ms)", "match_count"]));
     ret.push('\n');
     for result in &report.results {
         let synthetic_load_size = result.synthetic_load_size.to_string();
@@ -126,7 +126,8 @@ fn benchmark_report_to_csv(report: &BenckmarkReport) -> String {
         let total_time = result.total_time.as_millis().to_string();
         for iteration in 0..result.iterations.len() {
             let benchmark_time = result.iterations[iteration].benchmark_time.as_millis().to_string();
-            ret.push_str(&create_csv_row(&vec![scanmem_program, benchmark_name, &nthreads, &synthetic_load_size, &synthetic_load_random_seed, &setup_time, &total_time, &iteration.to_string(), &benchmark_time]));
+            let match_count = result.iterations[iteration].match_count.to_string();
+            ret.push_str(&create_csv_row(&vec![scanmem_program, benchmark_name, &nthreads, &synthetic_load_size, &synthetic_load_random_seed, &setup_time, &total_time, &iteration.to_string(), &benchmark_time, &match_count]));
             ret.push('\n');
         }
     }
@@ -222,7 +223,7 @@ fn compute_standard_deviation<I>(values: I, mean: f64) -> f64 where I: Iterator<
 
 type BenchmarkScenarioFunc = fn(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: i32, verbose: bool) -> Result<(), String>;
 
-fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: i32, verbose: bool) -> Result<(), String> {
+fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: i32, verbose: bool, match_count: &mut u64) -> Result<(), String> {
     
     // Create scanmem child process
     println!("Starting scanmem child process...");
@@ -238,9 +239,14 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
 
     let scanmem_exit_status;
 
+    struct ThreadData {
+        error: bool,
+        match_count: u64,
+    }
+
     // I don't like this.
-    let error_arc  = std::sync::Arc::<std::sync::atomic::AtomicBool>::new(false.into());
-    let error_arc_2  = error_arc.clone();
+    let stderr_data_mutex = std::sync::Arc::<std::sync::Mutex::<ThreadData>>::new(ThreadData{error: false, match_count: 0}.into());
+    //let error_arc  = std::sync::Arc::<std::sync::atomic::AtomicBool>::new(false.into());
 
     {
         let mut scanmem_process = match Command::new(scanmem_program).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
@@ -260,17 +266,28 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
             drain_stdout(&mut stdout, pid, verbose).unwrap();
         });
 
+        //let error_arc_2  = error_arc.clone();
+        let stderr_data_mutex = stderr_data_mutex.clone();
         let stderr_thread = std::thread::spawn(move || {
-            let error_arc_2 = error_arc_2;
+            //let error_arc_2 = error_arc_2;
+            let stderr_data_mutex = stderr_data_mutex;
+
             loop {
                 let buf = read_line_stderr(&mut stderr, pid, verbose).unwrap();
                 if buf.len() == 0 {
                     break;
                 }
-                
-                // Check if we have a permission error when running scanmem.
-                if buf.contains("Operation not permitted") {
-                    error_arc_2.store(true, std::sync::atomic::Ordering::Relaxed);
+
+                const MATCH_COUNT_PREFIX: &str = "info: we currently have ";
+                const MATCH_COUNT_SUFFIX: &str = " matches.\n";
+                if let Some(sub_str) = buf.strip_prefix(MATCH_COUNT_PREFIX) {
+                    // Store matches
+                    let match_count_string = sub_str.strip_suffix(MATCH_COUNT_SUFFIX).unwrap();
+                    stderr_data_mutex.lock().unwrap().match_count = match_count_string.parse().unwrap();
+                }
+                else if buf.contains("Operation not permitted") {
+                    // Check if we have a permission error when running scanmem.
+                    stderr_data_mutex.lock().unwrap().error = true;
                 }
             }
         });
@@ -291,7 +308,8 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
         return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
     }
 
-    let error = error_arc.load(std::sync::atomic::Ordering::Relaxed);
+    let error = stderr_data_mutex.lock().unwrap().error;
+    *match_count = stderr_data_mutex.lock().unwrap().match_count;
 
     if error {
         return Err(format!("Error: Interactive error detected during execution of scanmem, look at stderr output for more info"));
@@ -335,10 +353,11 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     iterations.reserve(iteration_count);
     for _ in 0..iteration_count {
         let start = SystemTime::now();
-        scenario_func_fill_random_iteration(scanmem_program, &scanmem_commands, pid, nthreads, verbose)?;
+        let mut match_count: u64 = 0;
+        scenario_func_fill_random_iteration(scanmem_program, &scanmem_commands, pid, nthreads, verbose, &mut match_count)?;
         
         let duration = SystemTime::now().duration_since(start).map_err(|e|e.to_string())?;
-        iterations.push(BenchmarkIteration{benchmark_time: duration, end_matches: 0});
+        iterations.push(BenchmarkIteration{benchmark_time: duration, match_count: match_count});
     }
 
     // Exit synthetic_load.
