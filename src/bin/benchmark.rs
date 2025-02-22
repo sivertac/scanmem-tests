@@ -1,8 +1,8 @@
 
-use std::{io::{BufRead, BufReader, BufWriter, Write}, path, process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
+use std::{io::{BufReader, BufWriter, Write}, path, process::{Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
 use clap::Parser;
 
-static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
+mod utils;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -135,92 +135,6 @@ fn benchmark_report_to_csv(report: &BenckmarkReport) -> String {
     return ret;
 }
 
-fn read_line_stream<S: BufRead>(stream: &mut S, pid: u32, echo: bool, name: &str) -> Result<String, String> {
-    let mut buf = String::new();
-    stream.read_line(&mut buf).map_err(|e|e.to_string())?;
-    if echo && !buf.is_empty() {
-        print!("pid {} {}: {}", pid, name, buf);
-    }
-    return Ok(buf)
-}
-
-/// Read 1 line from stdout and return it, blocking.
-fn read_line_stdout(stdout: & mut BufReader<ChildStdout>, pid: u32, echo: bool) -> Result<String, String> {
-    return read_line_stream(stdout, pid, echo, "stdout");
-}
-
-/// Read 1 line from stderr and return it, blocking.
-fn read_line_stderr(stderr: & mut BufReader<ChildStderr>, pid: u32, echo: bool) -> Result<String, String> {
-    return read_line_stream(stderr, pid, echo, "stderr");
-}
-
-/// Read from stdout until exact line is present.
-/// Discards read lines.
-fn read_until_line_stdout(stdout: & mut BufReader<ChildStdout>, condition_line: &str, pid: u32, echo: bool) -> Result<(), String> {
-    loop {
-        let buf = read_line_stdout(stdout, pid, echo)?;
-        if buf.eq(format!("{}\n", condition_line).as_str()) {
-            return Ok(())
-        }
-    }
-}
-
-// Write line to stream, blocking.
-fn write_line(stdin: &mut BufWriter<ChildStdin>, line: &str, pid: u32, echo: bool) -> Result<(), String> {
-    let out = format!("{}\n", line);
-    if echo {
-        print!("pid {} stdin: {}", pid, out);
-    }
-    stdin.write_all(out.as_bytes()).map_err(|e|e.to_string())?;
-    stdin.flush().map_err(|e|e.to_string())?;
-    return Ok(())
-}
-
-// Read whats left in the output pipe.
-fn drain_stream<S: BufRead>(stream: &mut S, pid: u32, echo: bool, name: &str) -> Result<(), String> {
-    loop {
-        let buf = read_line_stream(stream, pid, echo, name)?;                
-        if buf.len() == 0 {
-            break;
-        }
-    }
-    Ok(())
-}
-
-fn drain_stdout(stdout: & mut BufReader<ChildStdout>, pid: u32, echo: bool) -> Result<(), String> {
-    return drain_stream(stdout, pid, echo, "stdout");
-}
-
-fn drain_stderr(stderr: & mut BufReader<ChildStderr>, pid: u32, echo: bool) -> Result<(), String> {
-    return drain_stream(stderr, pid, echo, "stderr");
-}
-
-fn parse_scanmem_commands(input: &str) -> Vec<&str> {
-
-    let ret: Vec<&str> = input.split(';').collect();
-
-    // check if last command is 'exit'
-    if let Some(last) = ret.last() {
-        if !last.trim_ascii().eq("exit") {
-            println!("Warning: scanmem commands does not exit with 'exit'!.");
-        }
-    }
-    return ret;
-}
-
-fn compute_median<I>(values: I) -> f64 where I: Iterator<Item = f64>, {
-    let mut data: Vec<f64> = values.collect();
-    data.sort_by(|a,b|a.total_cmp(b));
-    return data[data.len() / 2];
-}
-
-fn compute_standard_deviation<I>(values: I, mean: f64) -> f64 where I: Iterator<Item = f64>, {
-    let data: Vec<f64> = values.collect();
-    let len = data.len();
-    let sum = data.into_iter().reduce(|acc: f64, e: f64| acc + (e - mean)).unwrap();
-    return f64::sqrt(1.0f64 / len as f64 * sum.powi(2));
-}
-
 type BenchmarkScenarioFunc = fn(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: i32, verbose: bool) -> Result<(), String>;
 
 fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: i32, verbose: bool, match_count: &mut u64) -> Result<(), String> {
@@ -263,7 +177,7 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
 
         // Spawn threads to drain stdout and stderr.
         let stdout_thread = std::thread::spawn(move || {
-            drain_stdout(&mut stdout, pid, verbose).unwrap();
+            utils::drain_stdout(&mut stdout, pid, verbose).unwrap();
         });
 
         //let error_arc_2  = error_arc.clone();
@@ -273,7 +187,7 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
             let stderr_data_mutex = stderr_data_mutex;
 
             loop {
-                let buf = read_line_stderr(&mut stderr, pid, verbose).unwrap();
+                let buf = utils::read_line_stderr(&mut stderr, pid, verbose).unwrap();
                 if buf.len() == 0 {
                     break;
                 }
@@ -293,7 +207,7 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
         });
 
         for command in scanmem_commands {
-            write_line(&mut stdin, command, pid, verbose)?;
+            utils::write_line(&mut stdin, command, pid, verbose)?;
         }
 
         // Drain output pipes.
@@ -342,10 +256,10 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     let pid = synthetic_load_process.id();
 
     // Init synthetic_load.
-    write_line(&mut stdin, format!("set-memory-size {}", synthetic_load_size).as_str(), pid, verbose)?;
-    read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
-    write_line(&mut stdin, format!("fill-random {}", synthetic_load_random_seed).as_str(), pid, verbose)?;
-    read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
+    utils::write_line(&mut stdin, format!("set-memory-size {}", synthetic_load_size).as_str(), pid, verbose)?;
+    utils::read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
+    utils::write_line(&mut stdin, format!("fill-random {}", synthetic_load_random_seed).as_str(), pid, verbose)?;
+    utils::read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
 
     // Run benchmark.
     result.setup_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
@@ -361,8 +275,8 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     }
 
     // Exit synthetic_load.
-    write_line(&mut stdin, format!("exit").as_str(), pid, verbose)?;
-    drain_stdout(&mut stdout, pid, verbose)?;
+    utils::write_line(&mut stdin, format!("exit").as_str(), pid, verbose)?;
+    utils::drain_stdout(&mut stdout, pid, verbose)?;
 
     let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {
@@ -421,7 +335,7 @@ fn main() -> ExitCode {
         }
     }
 
-    let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(SYNTHETIC_LOAD_NAME);
+    let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(utils::SYNTHETIC_LOAD_NAME);
     
     let mut report = BenckmarkReport::default();
     report.scanmem_program = cli.scanmem_program;
@@ -457,8 +371,8 @@ fn main() -> ExitCode {
         benchmark_result.max = benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()).max_by(|a,b|a.total_cmp(b)).unwrap();
         benchmark_result.min = benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()).min_by(|a,b|a.total_cmp(b)).unwrap();
         benchmark_result.mean = benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()).sum::<f64>() / benchmark_result.iterations.len() as f64;
-        benchmark_result.standard_deviation = compute_standard_deviation(benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()), benchmark_result.mean);
-        benchmark_result.median = compute_median(benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()));
+        benchmark_result.standard_deviation = utils::compute_standard_deviation(benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()), benchmark_result.mean);
+        benchmark_result.median = utils::compute_median(benchmark_result.iterations.iter().map(|e|e.benchmark_time.as_secs_f64()));
 
         report.results.push(benchmark_result);
 
