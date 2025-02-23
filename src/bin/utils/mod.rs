@@ -1,5 +1,5 @@
 
-use std::{io::{BufRead, BufReader, BufWriter, Read, Write}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio}};
+use std::{io::{BufRead, BufReader, BufWriter, Read, Write}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio}};
 
 pub static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
 
@@ -114,6 +114,26 @@ fn internal_read_line<S: std::io::Read>(stream: &mut S, pid: u32, echo: bool, na
     return Ok(ret)
 }
 
+// Read what's left in the output pipe.
+fn internal_drain_stream<S: std::io::Read>(stream: &mut S, pid: u32, echo: bool, name: &str) -> std::io::Result<()> {
+    loop {
+        match internal_read_line(stream, pid, echo, name) {
+            Ok(buf) => {
+                if buf.len() == 0 {
+                    return Ok(());
+                }
+            },
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                    // Hit EOF, exit.
+                    return Ok(());
+                }
+                return Err(e);
+            }
+        }                
+    }
+}
+
 // Write line to stream, blocking.
 // Appends '/n' to end of 'line' string.
 pub fn internal_write_line<S: std::io::Write>(stream: &mut S, line: &str, pid: u32, echo: bool, name: &str) -> std::io::Result<()> {
@@ -151,24 +171,12 @@ impl SyntheticLoadProcess {
         return self.child_process.id();
     }
 
-    //pub fn write_all_stdin(&self, data: &str) -> std::io::Result<()> {
-    //    assert!(self.child_process.stdin.is_some());
-    //
-    //    self.child_process.stdin.as_ref().unwrap().write_all(data.as_bytes())?;
-    //    self.child_process.stdin.as_ref().unwrap().flush()?;
-    //
-    //    return Ok(());
-    //}
-
-    pub fn write_line_stdin(&mut self, line: &str) -> std::io::Result<()> {
-        assert!(self.child_process.stdin.is_some());
-        
-        let pid = self.child_process.id();
-        return internal_write_line(self.child_process.stdin.as_mut().unwrap(), line, pid, self.verbose, "stdin");
+    pub fn wait(&mut self) -> std::io::Result<ExitStatus> {
+        return self.child_process.wait();
     }
 
     pub fn read_line_stdout(&mut self) -> std::io::Result<String> {
-        assert!(self.child_process.stdin.is_some());
+        assert!(self.child_process.stdout.is_some());
         
         let pid = self.child_process.id();
         return internal_read_line(self.child_process.stdout.as_mut().unwrap(), pid,self.verbose, "stdout");
@@ -185,5 +193,26 @@ impl SyntheticLoadProcess {
         }
     }
 
+    pub fn drain_stdout(&mut self) -> std::io::Result<()> {
+        assert!(self.child_process.stdout.is_some());
+        
+        let pid = self.child_process.id();
+        return internal_drain_stream(self.child_process.stdout.as_mut().unwrap(), pid, self.verbose, "stdout");
+    }
 
+    //pub fn write_all_stdin(&self, data: &str) -> std::io::Result<()> {
+    //    assert!(self.child_process.stdin.is_some());
+    //
+    //    self.child_process.stdin.as_ref().unwrap().write_all(data.as_bytes())?;
+    //    self.child_process.stdin.as_ref().unwrap().flush()?;
+    //
+    //    return Ok(());
+    //}
+
+    pub fn write_line_stdin(&mut self, line: &str) -> std::io::Result<()> {
+        assert!(self.child_process.stdin.is_some());
+        
+        let pid = self.child_process.id();
+        return internal_write_line(self.child_process.stdin.as_mut().unwrap(), line, pid, self.verbose, "stdin");
+    }
 }

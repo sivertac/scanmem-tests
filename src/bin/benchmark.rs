@@ -243,23 +243,14 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     let total_start_time = SystemTime::now();
 
     // Create synthetic_load child process and init.
-    println!("Starting synthetic_load child process...");
-    
-    let mut synthetic_load_process = match Command::new(synthetic_load_program).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            return Err(e.to_string())    
-        }
-    };
-    let mut stdin = BufWriter::new(synthetic_load_process.stdin.take().unwrap());
-    let mut stdout = BufReader::new(synthetic_load_process.stdout.take().unwrap());
-    let pid = synthetic_load_process.id();
+    let mut synthetic_load_process = utils::SyntheticLoadProcess::create(synthetic_load_program, verbose).unwrap();
+    let synthetic_load_process_pid = synthetic_load_process.get_pid();
 
     // Init synthetic_load.
-    utils::write_line(&mut stdin, format!("set-memory-size {}", synthetic_load_size).as_str(), pid, verbose)?;
-    utils::read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
-    utils::write_line(&mut stdin, format!("fill-random {}", synthetic_load_random_seed).as_str(), pid, verbose)?;
-    utils::read_until_line_stdout(&mut stdout, "Done", pid, verbose)?;
+    synthetic_load_process.write_line_stdin(format!("set-memory-size {}", synthetic_load_size).as_str()).unwrap();
+    synthetic_load_process.read_until_line_stdout("Done").unwrap();
+    synthetic_load_process.write_line_stdin(format!("fill-random {}", synthetic_load_random_seed).as_str()).unwrap();
+    synthetic_load_process.read_until_line_stdout("Done").unwrap();
 
     // Run benchmark.
     result.setup_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
@@ -268,15 +259,15 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     for _ in 0..iteration_count {
         let start = SystemTime::now();
         let mut match_count: u64 = 0;
-        scenario_func_fill_random_iteration(scanmem_program, &scanmem_commands, pid, nthreads, verbose, &mut match_count)?;
+        scenario_func_fill_random_iteration(scanmem_program, &scanmem_commands, synthetic_load_process_pid, nthreads, verbose, &mut match_count)?;
         
         let duration = SystemTime::now().duration_since(start).map_err(|e|e.to_string())?;
         iterations.push(BenchmarkIteration{benchmark_time: duration, match_count: match_count});
     }
 
     // Exit synthetic_load.
-    utils::write_line(&mut stdin, format!("exit").as_str(), pid, verbose)?;
-    utils::drain_stdout(&mut stdout, pid, verbose)?;
+    synthetic_load_process.write_line_stdin(format!("exit").as_str()).unwrap();
+    synthetic_load_process.drain_stdout().unwrap();
 
     let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {
