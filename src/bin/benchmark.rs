@@ -1,5 +1,5 @@
 
-use std::{io::{BufReader, BufWriter, Write}, path, process::{Command, ExitCode, Stdio}, time::{Duration, SystemTime}};
+use std::{io::Write, path, process::ExitCode, time::{Duration, SystemTime}};
 use clap::Parser;
 
 mod utils;
@@ -140,90 +140,24 @@ type BenchmarkScenarioFunc = fn(result: &mut BenchmarkResult, scanmem_program: &
 fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: i32, verbose: bool, match_count: &mut u64) -> Result<(), String> {
     
     // Create scanmem child process
-    println!("Starting scanmem child process...");
-    let args: String;
-    if nthreads == -1 {
-        args = format!("--pid={}", target_process_pid);
-    }
-    else {
-        args = format!("--pid={} --jobs={}", target_process_pid, nthreads);
+    let mut scanmem_process = utils::ScanmemProcess::create(scanmem_program, target_process_pid, nthreads, verbose).unwrap();
+
+    // Write commands, we assume we have only 1 scan in the program.
+    for command in scanmem_commands {
+        scanmem_process.write_line_stdin(command).unwrap();
     }
 
-    let args_vec: Vec<&str> = args.split_ascii_whitespace().collect();
+    // Capture match data.
+    let match_data = scanmem_process.read_match_data();
 
-    let scanmem_exit_status;
-
-    struct ThreadData {
-        error: bool,
-        match_count: u64,
-    }
-
-    // I don't like this.
-    let stderr_data_mutex = std::sync::Arc::<std::sync::Mutex::<ThreadData>>::new(ThreadData{error: false, match_count: 0}.into());
-    //let error_arc  = std::sync::Arc::<std::sync::atomic::AtomicBool>::new(false.into());
-
-    {
-        let mut scanmem_process = match Command::new(scanmem_program).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                return Err(e.to_string())    
-            }
-        };
-        let mut stdin = BufWriter::new(scanmem_process.stdin.take().unwrap());
-        let mut stdout = BufReader::new(scanmem_process.stdout.take().unwrap());
-        let mut stderr = BufReader::new(scanmem_process.stderr.take().unwrap());
-
-        let pid = scanmem_process.id();
-
-        // Spawn threads to drain stdout and stderr.
-        let stdout_thread = std::thread::spawn(move || {
-            utils::drain_stdout(&mut stdout, pid, verbose).unwrap();
-        });
-
-        //let error_arc_2  = error_arc.clone();
-        let stderr_data_mutex = stderr_data_mutex.clone();
-        let stderr_thread = std::thread::spawn(move || {
-            //let error_arc_2 = error_arc_2;
-            let stderr_data_mutex = stderr_data_mutex;
-
-            loop {
-                let buf = utils::read_line_stderr(&mut stderr, pid, verbose).unwrap();
-                if buf.len() == 0 {
-                    break;
-                }
-
-                const MATCH_COUNT_PREFIX: &str = "info: we currently have ";
-                const MATCH_COUNT_SUFFIX: &str = " matches.\n";
-                if let Some(sub_str) = buf.strip_prefix(MATCH_COUNT_PREFIX) {
-                    // Store matches
-                    let match_count_string = sub_str.strip_suffix(MATCH_COUNT_SUFFIX).unwrap();
-                    stderr_data_mutex.lock().unwrap().match_count = match_count_string.parse().unwrap();
-                }
-                else if buf.contains("Operation not permitted") {
-                    // Check if we have a permission error when running scanmem.
-                    stderr_data_mutex.lock().unwrap().error = true;
-                }
-            }
-        });
-
-        for command in scanmem_commands {
-            utils::write_line(&mut stdin, command, pid, verbose)?;
-        }
-
-        // Drain output pipes.
-        stdout_thread.join().unwrap();
-        stderr_thread.join().unwrap();
-    
-        // Cleanup
-        scanmem_exit_status = scanmem_process.wait().unwrap();
-    }
-
+    // Assume the end of the scanmem program ends with "exit".
+    let scanmem_exit_status = scanmem_process.wait().unwrap();
     if !scanmem_exit_status.success() {
         return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
     }
 
-    let error = stderr_data_mutex.lock().unwrap().error;
-    *match_count = stderr_data_mutex.lock().unwrap().match_count;
+    let error = match_data.error;
+    *match_count = match_data.match_count;
 
     if error {
         return Err(format!("Error: Interactive error detected during execution of scanmem, look at stderr output for more info"));

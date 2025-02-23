@@ -1,4 +1,4 @@
-use std::{io::{BufReader, BufWriter}, process::{Command, ExitCode, Stdio}};
+use std::process::ExitCode;
 
 use clap::Parser;
 
@@ -64,94 +64,30 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     // Run test
     {
         let scanmem_program = reference_scanmem_program;
-        let scanmem_commands = vec!["= 1", "exit"];
-        let mut match_count: u64 = 0;
 
         // Create scanmem child process
-        println!("Starting scanmem child process...");
-        let args: String;
-        if nthreads == -1 {
-            args = format!("--pid={}", synthetic_load_process_pid);
-        }
-        else {
-            args = format!("--pid={} --jobs={}", synthetic_load_process_pid, nthreads);
-        }
+        let mut scanmem_process = utils::ScanmemProcess::create(scanmem_program, synthetic_load_process_pid, nthreads, verbose).unwrap();
 
-        let args_vec: Vec<&str> = args.split_ascii_whitespace().collect();
+        scanmem_process.write_line_stdin("= 1").unwrap();
+        let match_data = scanmem_process.read_match_data();
+        println!("{:?}", match_data);
 
-        let scanmem_exit_status;
+        scanmem_process.write_line_stdin("reset").unwrap();
 
-        struct ThreadData {
-            error: bool,
-            match_count: u64,
-        }
+        scanmem_process.write_line_stdin("= 0").unwrap();
+        let match_data = scanmem_process.read_match_data();
+        println!("{:?}", match_data);
 
-        // I don't like this.
-        let stderr_data_mutex = std::sync::Arc::<std::sync::Mutex::<ThreadData>>::new(ThreadData{error: false, match_count: 0}.into());
-        //let error_arc  = std::sync::Arc::<std::sync::atomic::AtomicBool>::new(false.into());
+        let error = match_data.error;
 
-        {
-            let mut scanmem_process = match Command::new(scanmem_program).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
-                Ok(c) => c,
-                Err(e) => {
-                    return Err(e.to_string())    
-                }
-            };
-            let mut stdin = BufWriter::new(scanmem_process.stdin.take().unwrap());
-            let mut stdout = BufReader::new(scanmem_process.stdout.take().unwrap());
-            let mut stderr = BufReader::new(scanmem_process.stderr.take().unwrap());
 
-            let pid = scanmem_process.id();
+        scanmem_process.write_line_stdin("exit").unwrap();
 
-            // Spawn threads to drain stdout and stderr.
-            let stdout_thread = std::thread::spawn(move || {
-                utils::drain_stdout(&mut stdout, pid, verbose).unwrap();
-            });
-
-            //let error_arc_2  = error_arc.clone();
-            let stderr_data_mutex = stderr_data_mutex.clone();
-            let stderr_thread = std::thread::spawn(move || {
-                //let error_arc_2 = error_arc_2;
-                let stderr_data_mutex = stderr_data_mutex;
-
-                loop {
-                    let buf = utils::read_line_stderr(&mut stderr, pid, verbose).unwrap();
-                    if buf.len() == 0 {
-                        break;
-                    }
-
-                    const MATCH_COUNT_PREFIX: &str = "info: we currently have ";
-                    const MATCH_COUNT_SUFFIX: &str = " matches.\n";
-                    if let Some(sub_str) = buf.strip_prefix(MATCH_COUNT_PREFIX) {
-                        // Store matches
-                        let match_count_string = sub_str.strip_suffix(MATCH_COUNT_SUFFIX).unwrap();
-                        stderr_data_mutex.lock().unwrap().match_count = match_count_string.parse().unwrap();
-                    }
-                    else if buf.contains("Operation not permitted") {
-                        // Check if we have a permission error when running scanmem.
-                        stderr_data_mutex.lock().unwrap().error = true;
-                    }
-                }
-            });
-
-            for command in scanmem_commands {
-                utils::write_line(&mut stdin, command, pid, verbose)?;
-            }
-
-            // Drain output pipes.
-            stdout_thread.join().unwrap();
-            stderr_thread.join().unwrap();
-        
-            // Cleanup
-            scanmem_exit_status = scanmem_process.wait().unwrap();
-        }
+        let scanmem_exit_status = scanmem_process.wait().unwrap();
 
         if !scanmem_exit_status.success() {
             return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
         }
-
-        let error = stderr_data_mutex.lock().unwrap().error;
-        match_count = stderr_data_mutex.lock().unwrap().match_count;
 
         if error {
             return Err(format!("Error: Interactive error detected during execution of scanmem, look at stderr output for more info"));
@@ -159,6 +95,16 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 
         println!("scanmem child process done");
     }
+
+    // Exit synthetic_load.
+    synthetic_load_process.write_line_stdin(format!("exit").as_str()).unwrap();
+    synthetic_load_process.drain_stdout().unwrap();
+
+    let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
+    if !synthetic_load_exit_status.success() {
+        return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string()));
+    }
+    println!("synthetic_load child process done");
     
 
     return Ok(TestResult::Pass);
