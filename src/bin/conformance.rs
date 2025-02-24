@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-mod utils;
+use framework::{synthetic_load_driver, scanmem_driver};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -48,14 +48,14 @@ type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program
 
 fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> Result<TestResult, String> {
     
-    const synthetic_load_size: u64 = 0x1_000_000u64;
+    const SYNTHETIC_LOAD_SIZE: u64 = 0x1_000_000u64;
 
     // Create synthetic_load child process and init.
-    let mut synthetic_load_process = utils::SyntheticLoadProcess::create(synthetic_load_program, verbose).unwrap();
+    let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
     let synthetic_load_process_pid = synthetic_load_process.get_pid();
 
     // Init synthetic_load.
-    synthetic_load_process.write_line_stdin(format!("set-memory-size {}", synthetic_load_size).as_str()).unwrap();
+    synthetic_load_process.write_line_stdin(format!("set-memory-size {}", SYNTHETIC_LOAD_SIZE).as_str()).unwrap();
     synthetic_load_process.read_until_line_stdout("Done").unwrap();
     synthetic_load_process.write_line_stdin(format!("fill-random {}", synthetic_load_random_seed).as_str()).unwrap();
     synthetic_load_process.read_until_line_stdout("Done").unwrap();
@@ -66,7 +66,7 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
         let scanmem_program = reference_scanmem_program;
 
         // Create scanmem child process
-        let mut scanmem_process = utils::ScanmemProcess::create(scanmem_program, synthetic_load_process_pid, nthreads, verbose).unwrap();
+        let mut scanmem_process = scanmem_driver::ScanmemDriver::create(scanmem_program, synthetic_load_process_pid, nthreads, verbose).unwrap();
 
         scanmem_process.write_line_stdin("= 1").unwrap();
         let match_data = scanmem_process.read_match_data();
@@ -138,7 +138,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(utils::SYNTHETIC_LOAD_NAME);
+    let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(synthetic_load_driver::SYNTHETIC_LOAD_NAME);
     
     // Run tests.
     for test in test_list {

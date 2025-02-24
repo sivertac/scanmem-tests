@@ -2,7 +2,7 @@
 use std::{io::Write, path, process::ExitCode, time::{Duration, SystemTime}};
 use clap::Parser;
 
-mod utils;
+use framework::{utils, synthetic_load_driver, scanmem_driver};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -140,7 +140,7 @@ type BenchmarkScenarioFunc = fn(result: &mut BenchmarkResult, scanmem_program: &
 fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: i32, verbose: bool, match_count: &mut u64) -> Result<(), String> {
     
     // Create scanmem child process
-    let mut scanmem_process = utils::ScanmemProcess::create(scanmem_program, target_process_pid, nthreads, verbose).unwrap();
+    let mut scanmem_process = scanmem_driver::ScanmemDriver::create(scanmem_program, target_process_pid, nthreads, verbose).unwrap();
 
     // Write commands, we assume we have only 1 scan in the program.
     for command in scanmem_commands {
@@ -177,7 +177,7 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     let total_start_time = SystemTime::now();
 
     // Create synthetic_load child process and init.
-    let mut synthetic_load_process = utils::SyntheticLoadProcess::create(synthetic_load_program, verbose).unwrap();
+    let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
     let synthetic_load_process_pid = synthetic_load_process.get_pid();
 
     // Init synthetic_load.
@@ -260,7 +260,7 @@ fn main() -> ExitCode {
         }
     }
 
-    let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(utils::SYNTHETIC_LOAD_NAME);
+    let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(synthetic_load_driver::SYNTHETIC_LOAD_NAME);
     
     let mut report = BenckmarkReport::default();
     report.scanmem_program = cli.scanmem_program;
