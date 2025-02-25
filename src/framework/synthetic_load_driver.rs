@@ -25,6 +25,36 @@ impl SyntheticLoadDriver {
         return Ok(process);
     }
 
+    /// Exit child process, will drain stdout.
+    pub fn command_exit(&mut self) -> std::io::Result<()> {
+        self.write_line_stdin(format!("exit").as_str())?;
+        return self.drain_stdout();
+    }
+
+    /// Send command and wait for "Done" message.
+    pub fn command_set_memory_size(&mut self, size: usize) -> std::io::Result<()> {
+        self.write_line_stdin(format!("set-memory-size {}", size).as_str())?;
+        return self.read_until_line_stdout("Done");
+    }
+
+    /// Send command and wait for "Done" message.
+    pub fn command_fill(&mut self, value: u8) -> std::io::Result<()> {
+        self.write_line_stdin(format!("fill {}", value).as_str())?;
+        return self.read_until_line_stdout("Done");
+    }
+
+    /// Send command and wait for "Done" message.
+    pub fn command_fill_random(&mut self, seed: u64) -> std::io::Result<()> {
+        self.write_line_stdin(format!("fill-random {}", seed).as_str())?;
+        return self.read_until_line_stdout("Done");
+    }
+
+    /// Send command and wait for "Done" message.
+    pub fn command_set_address(&mut self, address: usize, value: u8) -> std::io::Result<()> {
+        self.write_line_stdin(format!("set-address {} {}", address, value).as_str())?;
+        return self.read_until_line_stdout("Done");
+    }
+
     pub fn get_pid(&self) -> u32 {
         return self.child_process.id();
     }
@@ -33,7 +63,7 @@ impl SyntheticLoadDriver {
         return self.child_process.wait();
     }
 
-    pub fn read_line_stdout(&mut self) -> std::io::Result<String> {
+    fn read_line_stdout(&mut self) -> std::io::Result<String> {
         assert!(self.child_process.stdout.is_some());
         
         let pid = self.child_process.id();
@@ -42,7 +72,7 @@ impl SyntheticLoadDriver {
 
     /// Read from stdout until exact line is present.
     /// Discards read lines.
-    pub fn read_until_line_stdout(&mut self, condition_line: &str) -> std::io::Result<()> {
+    fn read_until_line_stdout(&mut self, condition_line: &str) -> std::io::Result<()> {
         loop {
             let buf = self.read_line_stdout()?;
             if buf.eq(format!("{}\n", condition_line).as_str()) {
@@ -51,7 +81,7 @@ impl SyntheticLoadDriver {
         }
     }
 
-    pub fn drain_stdout(&mut self) -> std::io::Result<()> {
+    fn drain_stdout(&mut self) -> std::io::Result<()> {
         assert!(self.child_process.stdout.is_some());
         
         let pid = self.child_process.id();
@@ -67,7 +97,7 @@ impl SyntheticLoadDriver {
     //    return Ok(());
     //}
 
-    pub fn write_line_stdin(&mut self, line: &str) -> std::io::Result<()> {
+    fn write_line_stdin(&mut self, line: &str) -> std::io::Result<()> {
         assert!(self.child_process.stdin.is_some());
         
         let pid = self.child_process.id();

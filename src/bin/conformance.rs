@@ -48,17 +48,15 @@ type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program
 
 fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> Result<TestResult, String> {
     
-    const SYNTHETIC_LOAD_SIZE: u64 = 0x1_000_000u64;
+    const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
 
     // Create synthetic_load child process and init.
     let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
     let synthetic_load_process_pid = synthetic_load_process.get_pid();
 
     // Init synthetic_load.
-    synthetic_load_process.write_line_stdin(format!("set-memory-size {}", SYNTHETIC_LOAD_SIZE).as_str()).unwrap();
-    synthetic_load_process.read_until_line_stdout("Done").unwrap();
-    synthetic_load_process.write_line_stdin(format!("fill-random {}", synthetic_load_random_seed).as_str()).unwrap();
-    synthetic_load_process.read_until_line_stdout("Done").unwrap();
+    synthetic_load_process.command_set_memory_size(SYNTHETIC_LOAD_SIZE).unwrap();
+    synthetic_load_process.command_fill_random(synthetic_load_random_seed).unwrap();
 
 
     // Run test
@@ -97,8 +95,7 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     }
 
     // Exit synthetic_load.
-    synthetic_load_process.write_line_stdin(format!("exit").as_str()).unwrap();
-    synthetic_load_process.drain_stdout().unwrap();
+    synthetic_load_process.command_exit().unwrap();
 
     let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {

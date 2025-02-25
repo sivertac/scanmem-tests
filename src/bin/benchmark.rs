@@ -181,10 +181,8 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     let synthetic_load_process_pid = synthetic_load_process.get_pid();
 
     // Init synthetic_load.
-    synthetic_load_process.write_line_stdin(format!("set-memory-size {}", synthetic_load_size).as_str()).unwrap();
-    synthetic_load_process.read_until_line_stdout("Done").unwrap();
-    synthetic_load_process.write_line_stdin(format!("fill-random {}", synthetic_load_random_seed).as_str()).unwrap();
-    synthetic_load_process.read_until_line_stdout("Done").unwrap();
+    synthetic_load_process.command_set_memory_size(synthetic_load_size as usize).unwrap();
+    synthetic_load_process.command_fill_random(synthetic_load_random_seed).unwrap();
 
     // Run benchmark.
     result.setup_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
@@ -200,8 +198,7 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     }
 
     // Exit synthetic_load.
-    synthetic_load_process.write_line_stdin(format!("exit").as_str()).unwrap();
-    synthetic_load_process.drain_stdout().unwrap();
+    synthetic_load_process.command_exit().unwrap();
 
     let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {
