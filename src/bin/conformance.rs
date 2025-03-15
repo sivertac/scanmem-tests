@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use framework::{synthetic_load_driver, scanmem_driver};
+use framework::{synthetic_load_driver, scanmem_driver, scanmem_driver::MatchData};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -46,6 +46,30 @@ enum TestResult {
 
 type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> Result<TestResult, String>;
 
+/// Returns match count on success.
+fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthreads: i32, verbose: bool) -> Result<u64, String> {
+    // Create scanmem child process
+    let mut scanmem_process = scanmem_driver::ScanmemDriver::create(scanmem_program, target_pid, nthreads, verbose).unwrap();
+
+    scanmem_process.write_line_stdin("= 1").unwrap();
+    let match_data: MatchData = scanmem_process.read_match_data();
+    
+    scanmem_process.write_line_stdin("exit").unwrap();
+
+    let scanmem_exit_status = scanmem_process.wait().unwrap();
+
+    if !scanmem_exit_status.success() {
+        return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
+    }
+
+    if !match_data.error {
+        return Ok(match_data.match_count);
+    }
+    else {
+        return Err("Error: Interactive error detected during execution of scanmem, look at stderr output for more info".into());
+    }
+}
+
 fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> Result<TestResult, String> {
     
     const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
@@ -60,39 +84,17 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 
 
     // Run test
-    {
-        let scanmem_program = reference_scanmem_program;
+    let mut test_result = TestResult::Pass;
 
-        // Create scanmem child process
-        let mut scanmem_process = scanmem_driver::ScanmemDriver::create(scanmem_program, synthetic_load_process_pid, nthreads, verbose).unwrap();
+    let reference_match_count = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose)?;
 
-        scanmem_process.write_line_stdin("= 1").unwrap();
-        let match_data = scanmem_process.read_match_data();
-        println!("{:?}", match_data);
+    let test_match_count = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose)?;
 
-        scanmem_process.write_line_stdin("reset").unwrap();
-
-        scanmem_process.write_line_stdin("= 0").unwrap();
-        let match_data = scanmem_process.read_match_data();
-        println!("{:?}", match_data);
-
-        let error = match_data.error;
-
-
-        scanmem_process.write_line_stdin("exit").unwrap();
-
-        let scanmem_exit_status = scanmem_process.wait().unwrap();
-
-        if !scanmem_exit_status.success() {
-            return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
-        }
-
-        if error {
-            return Err(format!("Error: Interactive error detected during execution of scanmem, look at stderr output for more info"));
-        }
-
-        println!("scanmem child process done");
+    if test_match_count != reference_match_count {
+        println!("Mismatch: test_match_count({}) != reference_match_count({})", test_match_count, reference_match_count);
+        test_result = TestResult::Fail;
     }
+
 
     // Exit synthetic_load.
     synthetic_load_process.command_exit().unwrap();
@@ -101,10 +103,8 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     if !synthetic_load_exit_status.success() {
         return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string()));
     }
-    println!("synthetic_load child process done");
-    
 
-    return Ok(TestResult::Pass);
+    return Ok(test_result);
 }
 
 struct TestScenario {

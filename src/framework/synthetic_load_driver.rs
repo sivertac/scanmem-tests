@@ -10,6 +10,14 @@ pub struct SyntheticLoadDriver {
     verbose: bool,
 }
 
+impl Drop for SyntheticLoadDriver {
+    fn drop(&mut self) {
+        if self.verbose {
+            println!("synthetic_load child process done, pid: {}", self.get_pid());
+        }
+    }
+}
+
 impl SyntheticLoadDriver {
     pub fn create(synthetic_load_program: &str, verbose: bool) -> std::io::Result<SyntheticLoadDriver> {
         

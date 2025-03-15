@@ -18,6 +18,14 @@ pub struct ScanmemDriver {
     match_data: Arc<(Mutex<Option<MatchData>>, Condvar)>,
 }
 
+impl Drop for ScanmemDriver {
+    fn drop(&mut self) {
+        if self.verbose {
+            println!("scanmem child process done, pid: {}", self.get_pid());
+        }
+    }
+}
+
 impl ScanmemDriver {
     pub fn create(scanmem_program: &str, target_process_pid: u32, nthreads: i32, verbose: bool) -> std::io::Result<ScanmemDriver> {
         

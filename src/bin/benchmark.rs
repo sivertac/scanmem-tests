@@ -162,8 +162,6 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
     if error {
         return Err(format!("Error: Interactive error detected during execution of scanmem, look at stderr output for more info"));
     }
-
-    println!("scanmem child process done");
     
     return Ok(())
 }
@@ -204,8 +202,6 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
     if !synthetic_load_exit_status.success() {
         return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string()));
     }
-
-    println!("synthetic_load child process done");
 
     result.total_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
 
