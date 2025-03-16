@@ -65,3 +65,123 @@ pub fn internal_write_line<S: std::io::Write>(stream: &mut S, line: &str, pid: u
 
     return Ok(())
 }
+
+#[macro_export]
+macro_rules! expect_eq {
+    ($left:expr, $right:expr) => {{
+        if $left != $right {
+            eprintln!(
+                "Assertion failed at {}:{}: `{}` != `{}`, Left: `{:?}` Right: `{:?}`, expected equal.",
+                file!(),
+                line!(),
+                stringify!($left),
+                stringify!($right),
+                $left,
+                $right
+            );
+            false
+        } else {
+            true
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! expect_ne {
+    ($left:expr, $right:expr) => {{
+        if $left == $right {
+            eprintln!(
+                "Assertion failed at {}:{}: `{}` == `{}`, Left: `{:?}` Right: `{:?}`, expected not equal.",
+                file!(),
+                line!(),
+                stringify!($left),
+                stringify!($right),
+                $left,
+                $right
+            );
+            false
+        } else {
+            true
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! expect_gt {
+    ($left:expr, $right:expr) => {{
+        if $left <= $right {
+            eprintln!(
+                "Assertion failed at {}:{}: `{}` <= `{}`, Left: `{:?}` Right: `{:?}`, expected greater than.",
+                file!(),
+                line!(),
+                stringify!($left),
+                stringify!($right),
+                $left,
+                $right
+            );
+            false
+        } else {
+            true
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! expect_lt {
+    ($left:expr, $right:expr) => {{
+        if $left >= $right {
+            eprintln!(
+                "Assertion failed at {}:{}: `{}` >= `{}`, Left: `{:?}` Right: `{:?}`, expected less than.",
+                file!(),
+                line!(),
+                stringify!($left),
+                stringify!($right),
+                $left,
+                $right
+            );
+            false
+        } else {
+            true
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! expect_ge {
+    ($left:expr, $right:expr) => {{
+        if $left < $right {
+            eprintln!(
+                "Assertion failed at {}:{}: `{}` < `{}`, Left: `{:?}` Right: `{:?}`, expected greater or equal.",
+                file!(),
+                line!(),
+                stringify!($left),
+                stringify!($right),
+                $left,
+                $right
+            );
+            false
+        } else {
+            true
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! expect_le {
+    ($left:expr, $right:expr) => {{
+        if $left > $right {
+            eprintln!(
+                "Assertion failed at {}:{}: `{}` > `{}`, Left: `{:?}` Right: `{:?}`, expected less or equal.",
+                file!(),
+                line!(),
+                stringify!($left),
+                stringify!($right),
+                $left,
+                $right
+            );
+            false
+        } else {
+            true
+        }
+    }};
+}

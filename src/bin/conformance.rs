@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use framework::{synthetic_load_driver, scanmem_driver, scanmem_driver::MatchData};
+use framework::{synthetic_load_driver, scanmem_driver, scanmem_driver::MatchData, expect_eq, expect_ne, expect_gt, expect_lt, expect_ge, expect_le};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -90,11 +90,9 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 
     let test_match_count = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose)?;
 
-    if test_match_count != reference_match_count {
-        println!("Mismatch: test_match_count({}) != reference_match_count({})", test_match_count, reference_match_count);
+    if expect_eq!(test_match_count, reference_match_count) {
         test_result = TestResult::Fail;
     }
-
 
     // Exit synthetic_load.
     synthetic_load_process.command_exit().unwrap();
