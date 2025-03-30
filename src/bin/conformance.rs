@@ -94,7 +94,7 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     }
     let reference_match_count = reference_res.unwrap();
 
-    let test_res = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
+    let test_res = test_search_regions_scanmem_part(test_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
     if let Err(s) = test_res {
         println!("{}", s);
         return TestResult::Fail;
