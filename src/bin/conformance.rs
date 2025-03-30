@@ -1,8 +1,8 @@
-use std::process::ExitCode;
+use std::{process::ExitCode};
 
 use clap::Parser;
 
-use framework::{synthetic_load_driver, scanmem_driver, scanmem_driver::MatchData, expect_eq, expect_ne, expect_gt, expect_lt, expect_ge, expect_le};
+use framework::{synthetic_load_driver, scanmem_driver, scanmem_driver::MatchData, expect_eq};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -39,12 +39,13 @@ struct Cli {
     verbose: bool,
 }
 
+#[derive(PartialEq)]
 enum TestResult {
     Pass,
     Fail,
 }
 
-type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> Result<TestResult, String>;
+type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> TestResult;
 
 /// Returns match count on success.
 fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthreads: i32, verbose: bool) -> Result<u64, String> {
@@ -70,7 +71,7 @@ fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthr
     }
 }
 
-fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> Result<TestResult, String> {
+fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> TestResult {
     
     const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
 
@@ -84,13 +85,25 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 
 
     // Run test
+    let test_result = TestResult::Pass;
+
+    let reference_res = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
+    if let Err(s) = reference_res {
+        println!("{}", s);
+        return TestResult::Fail;
+    }
+    let reference_match_count = reference_res.unwrap();
+
+    let test_res = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
+    if let Err(s) = test_res {
+        println!("{}", s);
+        return TestResult::Fail;
+    }
+    let test_match_count = test_res.unwrap();
+
     let mut test_result = TestResult::Pass;
 
-    let reference_match_count = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose)?;
-
-    let test_match_count = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose)?;
-
-    if expect_eq!(test_match_count, reference_match_count) {
+    if !expect_eq!(test_match_count, reference_match_count) {
         test_result = TestResult::Fail;
     }
 
@@ -99,16 +112,24 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 
     let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {
-        return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string()));
+        println!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string());
+        test_result = TestResult::Fail;
     }
 
-    return Ok(test_result);
+    return test_result;
 }
 
 struct TestScenario {
     name: String,
     description: String,
     perform_benchmark_scenario_func: TestScenarioFunc,
+}
+
+fn test_result_to_string(test_result: &TestResult) -> String {
+    return match test_result {
+        TestResult::Fail => "Fail".into(),
+        TestResult::Pass => "Pass".into()
+    }
 }
 
 fn main() -> ExitCode {
@@ -136,9 +157,37 @@ fn main() -> ExitCode {
     let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(synthetic_load_driver::SYNTHETIC_LOAD_NAME);
     
     // Run tests.
-    for test in test_list {
-        (test.perform_benchmark_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, cli.nthreads, cli.verbose).unwrap();
+    let test_count = test_list.len();
+    let mut test_result_list = vec![];
+    for test in &test_list {
+        // Execute test
+        let test_result = (test.perform_benchmark_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, cli.nthreads, cli.verbose);
+        test_result_list.push(test_result);
     }
 
-    return ExitCode::SUCCESS
+    let pass_count = test_result_list.iter().filter(|e|**e == TestResult::Pass).count();
+    let fail_count = test_result_list.iter().filter(|e|**e == TestResult::Fail).count();
+
+    // Print results.
+    println!("==================================");
+    println!("Test results");
+    println!("==================================");
+    for i in 0..test_list.len() {
+        let test_result = &test_result_list[i];
+        let test_name = &test_list[i].name;
+
+        println!("{}: {}", test_result_to_string(test_result), test_name);
+    }
+    println!("==================================");
+    println!("Test results summary");
+    println!("==================================");
+    println!("Total number of tests....{}", test_count);
+    println!("Pass count...............{}", pass_count);
+    println!("Fail count...............{}", fail_count);
+
+    if fail_count > 0 {
+        return ExitCode::FAILURE;
+    }
+
+    return ExitCode::SUCCESS;
 }
