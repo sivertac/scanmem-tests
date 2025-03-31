@@ -2,7 +2,7 @@ use std::{process::ExitCode};
 
 use clap::Parser;
 
-use framework::{synthetic_load_driver, scanmem_driver, scanmem_driver::MatchData, expect_eq};
+use framework::{expect_eq, expect_ge, scanmem_driver::{self, MatchData}, synthetic_load_driver};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -83,10 +83,7 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     synthetic_load_process.command_set_memory_size(SYNTHETIC_LOAD_SIZE).unwrap();
     synthetic_load_process.command_fill_random(synthetic_load_random_seed).unwrap();
 
-
     // Run test
-    let test_result = TestResult::Pass;
-
     let reference_res = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
     if let Err(s) = reference_res {
         println!("{}", s);
@@ -104,6 +101,105 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     let mut test_result = TestResult::Pass;
 
     if !expect_eq!(test_match_count, reference_match_count) {
+        test_result = TestResult::Fail;
+    }
+
+    // Exit synthetic_load.
+    synthetic_load_process.command_exit().unwrap();
+
+    let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
+    if !synthetic_load_exit_status.success() {
+        println!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string());
+        test_result = TestResult::Fail;
+    }
+
+    return test_result;
+}
+
+fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> TestResult {
+    const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
+
+    // Create synthetic_load child process and init.
+    let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
+    let synthetic_load_process_pid = synthetic_load_process.get_pid();
+
+    // Init synthetic_load, fill with 1s.
+    synthetic_load_process.command_set_memory_size(SYNTHETIC_LOAD_SIZE).unwrap();
+    synthetic_load_process.command_fill(0x1).unwrap();
+
+
+    // Run test
+
+    // Create scanmem child processes.
+    let mut reference_scanmem = scanmem_driver::ScanmemDriver::create(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose).unwrap();
+    let mut test_scanmem = scanmem_driver::ScanmemDriver::create(test_scanmem_program, synthetic_load_process_pid, nthreads, verbose).unwrap();
+
+    let mut test_result = TestResult::Pass;
+
+    {
+        // Perform initial search regions, find all 1s, and read match data so we know the operation is complete.
+        // We can't attach 2 times to the same process at the same time, so we need to make sure we're done scanning before attaching the other scanmem process.
+        reference_scanmem.write_line_stdin("= 1").unwrap();
+        let reference_match_data: MatchData = reference_scanmem.read_match_data();
+        test_scanmem.write_line_stdin("= 1").unwrap();
+        let test_match_data: MatchData = test_scanmem.read_match_data();
+        // Validate first search regions even though we're not testing this explicitly.
+        if !expect_eq!(reference_match_data.error, false) {
+            test_result = TestResult::Fail;
+        }
+        if !expect_eq!(test_match_data.error, false) {
+            test_result = TestResult::Fail;
+        }
+        if !expect_ge!(reference_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64) {
+            test_result = TestResult::Fail;
+        }
+        if !expect_ge!(test_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64) {
+            test_result = TestResult::Fail;
+        }
+        if !expect_eq!(reference_match_data.match_count, test_match_data.match_count) {
+            test_result = TestResult::Fail;
+        }
+    }
+
+    // Mofify synthetic load to contain 2s.
+    synthetic_load_process.command_fill(0x2).unwrap();
+
+    {
+        // Perform initial search regions, find all 1s, and read match data so we know the operation is complete.
+        // We can't attach 2 times to the same process at the same time, so we need to make sure we're done scanning before attaching the other scanmem process. 
+        reference_scanmem.write_line_stdin("= 2").unwrap();
+        let reference_match_data: MatchData = reference_scanmem.read_match_data();
+        test_scanmem.write_line_stdin("= 2").unwrap();
+        let test_match_data: MatchData = test_scanmem.read_match_data();
+        // Validate first search regions even though we're not testing this explicitly.
+        if !expect_eq!(reference_match_data.error, false) {
+            test_result = TestResult::Fail;
+        }
+        if !expect_eq!(test_match_data.error, false) {
+            test_result = TestResult::Fail;
+        }
+        if !expect_ge!(reference_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64) {
+            test_result = TestResult::Fail;
+        }
+        if !expect_ge!(test_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64) {
+            test_result = TestResult::Fail;
+        }
+        if !expect_eq!(reference_match_data.match_count, test_match_data.match_count) {
+            test_result = TestResult::Fail;
+        }
+    }
+
+    // Cleanup.
+    reference_scanmem.write_line_stdin("exit").unwrap();
+    test_scanmem.write_line_stdin("exit").unwrap();
+    let reference_scanmem_exit_status = reference_scanmem.wait().unwrap();
+    let test_scanmem_exit_status = test_scanmem.wait().unwrap();
+    if !reference_scanmem_exit_status.success() {
+        println!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", reference_scanmem_exit_status.code().unwrap(), reference_scanmem_exit_status.to_string());
+        test_result = TestResult::Fail;
+    }
+    if !test_scanmem_exit_status.success() {
+        println!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", test_scanmem_exit_status.code().unwrap(), test_scanmem_exit_status.to_string());
         test_result = TestResult::Fail;
     }
 
@@ -142,6 +238,11 @@ fn main() -> ExitCode {
             description: "Fill target process with random bytes, then call scanmem with \"= 1; q;\". Compare matches found to reference.".into(),
             perform_benchmark_scenario_func: scenario_func_test_search_regions
         },
+        TestScenario{
+            name: "CheckMatches".into(),
+            description: "Fill target process with 1s, and call scanmem with \"= 1\". Then modify target process to contain 2s, and call scanmem with \"= 2\". Compare matches found to reference.".into(),
+            perform_benchmark_scenario_func: scenario_func_test_check_matches
+        },
     ];
 
     if cli.list_tests {
@@ -161,8 +262,14 @@ fn main() -> ExitCode {
     let mut test_result_list = vec![];
     for test in &test_list {
         // Execute test
+        if cli.verbose {
+            println!("Starting test: {}", test.name);
+        }
         let test_result = (test.perform_benchmark_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, cli.nthreads, cli.verbose);
         test_result_list.push(test_result);
+        if cli.verbose {
+            println!("Ending test: {}", test.name);
+        }
     }
 
     let pass_count = test_result_list.iter().filter(|e|**e == TestResult::Pass).count();
