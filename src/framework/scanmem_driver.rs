@@ -1,4 +1,5 @@
 use std::{process::{Child, Command, ExitStatus, Stdio}, sync::{Arc, Mutex, Condvar}, thread::JoinHandle};
+use regex::Regex;
 
 use crate::utils::*;
 
@@ -6,6 +7,57 @@ use crate::utils::*;
 pub struct MatchData {
     pub error: bool,
     pub match_count: u64,
+}
+
+#[derive(Debug)]
+struct ScanmemVersions {
+    scanmem_version: (i32, i32),
+    libscanmem_version: (i32, i32)
+}
+
+fn read_scanmem_versions(scanmem_program: &str, verbose: bool) -> std::io::Result<ScanmemVersions> {
+    let mut scanmem_version= (0, 0);
+    let mut libscanmem_version= (0, 0);
+    
+    let dummy_process = Command::new(scanmem_program).arg("--version").stderr(Stdio::piped()).spawn()?;
+    let output = dummy_process.wait_with_output()?;
+    let output_string = String::from_utf8(output.stderr).unwrap();
+
+    // Parse out versions.
+    let scanmem_regex = Regex::new(r"^scanmem version (?<major>[0-9]+)\.(?<minor>[0-9]+)").unwrap();
+    let libscanmem_regex = Regex::new(r"^libscanmem version (?<major>[0-9]+)\.(?<minor>[0-9]+)").unwrap();
+    for line in output_string.lines() {
+        if let Some(captures) = scanmem_regex.captures(line) {
+            let major: i32 = captures.name("major").unwrap().as_str().parse().unwrap();
+            let minor: i32 = captures.name("minor").unwrap().as_str().parse().unwrap();
+            scanmem_version = (major, minor);
+        }
+        if let Some(captures) = libscanmem_regex.captures(line) {
+            let major: i32 = captures.name("major").unwrap().as_str().parse().unwrap();
+            let minor: i32 = captures.name("minor").unwrap().as_str().parse().unwrap();
+            libscanmem_version = (major, minor);
+        }
+    }
+
+    let versions = ScanmemVersions{scanmem_version, libscanmem_version};
+    if verbose {
+        println!("scanmem versions: {:?}", versions);
+    }
+    
+    return Ok(versions); 
+}
+
+fn check_if_scanmem_program_supports_multithreading(scanmem_program: &str, verbose: bool) -> std::io::Result<bool> {
+    // Get scanmem versions.
+
+    let versions = read_scanmem_versions(scanmem_program, verbose)?;
+
+    let scanmem_supports_multithreading = versions.scanmem_version.0 >= 0 && versions.scanmem_version.1 >= 18 && versions.libscanmem_version.0 >= 0 && versions.libscanmem_version.1 >= 18;
+    if scanmem_supports_multithreading && verbose {
+        println!("Scanmem ({}) supports multithreading.", scanmem_program);
+    }
+
+    return Ok(scanmem_supports_multithreading);
 }
 
 pub struct ScanmemDriver {
@@ -29,13 +81,12 @@ impl Drop for ScanmemDriver {
 impl ScanmemDriver {
     pub fn create(scanmem_program: &str, target_process_pid: u32, nthreads: i32, verbose: bool) -> std::io::Result<ScanmemDriver> {
         
+        
         // Compile args.
-        let args: String;
-        if nthreads == -1 {
-            args = format!("--pid={}", target_process_pid);
-        }
-        else {
-            args = format!("--pid={} --jobs={}", target_process_pid, nthreads);
+        let mut args: String = format!("--pid={}", target_process_pid);
+        let scanmem_supports_multithreading = check_if_scanmem_program_supports_multithreading(scanmem_program, verbose)?;
+        if scanmem_supports_multithreading {
+            args.push_str(format!(" --jobs={}", nthreads).as_str());
         }
         let args_vec: Vec<&str> = args.split_ascii_whitespace().collect();
 

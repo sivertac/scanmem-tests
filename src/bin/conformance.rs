@@ -117,7 +117,8 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 }
 
 fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> TestResult {
-    const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
+    //const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
+    const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000_0usize;
 
     // Create synthetic_load child process and init.
     let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
