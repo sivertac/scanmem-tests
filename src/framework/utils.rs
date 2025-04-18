@@ -66,6 +66,21 @@ pub fn internal_write_line<S: std::io::Write>(stream: &mut S, line: &str, pid: u
     return Ok(())
 }
 
+#[derive(PartialEq)]
+pub enum TestResult {
+    Pass,
+    Fail,
+}
+
+pub fn bool_to_test_result(v: bool) -> TestResult {
+    if v {
+        return TestResult::Pass;
+    }
+    else {
+        return TestResult::Fail;
+    }
+}
+
 #[macro_export]
 macro_rules! expect_eq {
     ($left:expr, $right:expr) => {{
@@ -184,4 +199,56 @@ macro_rules! expect_le {
             true
         }
     }};
+}
+
+#[macro_export]
+macro_rules! expect_set_result {
+    ($result:expr, $predicate:ident, $left:expr, $right:expr) => {
+        let tmp = $crate::utils::bool_to_test_result($predicate!($left, $right));
+        if $result == TestResult::Pass {
+            $result = tmp;
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! expect_eq_r {
+    ($result:expr, $left:expr, $right:expr) => {
+        framework::expect_set_result!($result, expect_eq, $left, $right);
+    }
+}
+
+#[macro_export]
+macro_rules! expect_ne_r {
+    ($result:expr, $left:expr, $right:expr) => {
+        framework::expect_set_result!($result, expect_ne, $left, $right);
+    }
+}
+
+#[macro_export]
+macro_rules! expect_gt_r {
+    ($result:expr, $left:expr, $right:expr) => {
+        framework::expect_set_result!($result, expect_gt, $left, $right);
+    }
+}
+
+#[macro_export]
+macro_rules! expect_lt_r {
+    ($result:expr, $left:expr, $right:expr) => {
+        framework::expect_set_result!($result, expect_lt, $left, $right);
+    }
+}
+
+#[macro_export]
+macro_rules! expect_ge_r {
+    ($result:expr, $left:expr, $right:expr) => {
+        framework::expect_set_result!($result, expect_ge, $left, $right);
+    }
+}
+
+#[macro_export]
+macro_rules! expect_le_r {
+    ($result:expr, $left:expr, $right:expr) => {
+        framework::expect_set_result!($result, expect_le, $left, $right);
+    }
 }

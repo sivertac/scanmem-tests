@@ -2,7 +2,7 @@ use std::{process::ExitCode};
 
 use clap::Parser;
 
-use framework::{expect_eq, expect_ge, scanmem_driver::{self, MatchData}, synthetic_load_driver};
+use framework::{*, scanmem_driver::{self, MatchData}, synthetic_load_driver, utils::TestResult};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -41,12 +41,6 @@ struct Cli {
     /// Echo child process stdout and stderr in parent stdout and stderr.
     #[arg(short = 'v', long, default_value_t = false)]
     verbose: bool,
-}
-
-#[derive(PartialEq)]
-enum TestResult {
-    Pass,
-    Fail,
 }
 
 type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: u32, verbose: bool) -> TestResult;
@@ -104,9 +98,7 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 
     let mut test_result = TestResult::Pass;
 
-    if !expect_eq!(test_match_count, reference_match_count) {
-        test_result = TestResult::Fail;
-    }
+    expect_eq_r!(test_result, test_match_count, reference_match_count);
 
     // Exit synthetic_load.
     synthetic_load_process.command_exit().unwrap();
@@ -147,21 +139,11 @@ fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanme
         test_scanmem.write_line_stdin("= 1").unwrap();
         let test_match_data: MatchData = test_scanmem.read_match_data();
         // Validate first search regions even though we're not testing this explicitly.
-        if !expect_eq!(reference_match_data.error, false) {
-            test_result = TestResult::Fail;
-        }
-        if !expect_eq!(test_match_data.error, false) {
-            test_result = TestResult::Fail;
-        }
-        if !expect_ge!(reference_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64) {
-            test_result = TestResult::Fail;
-        }
-        if !expect_ge!(test_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64) {
-            test_result = TestResult::Fail;
-        }
-        if !expect_eq!(reference_match_data.match_count, test_match_data.match_count) {
-            test_result = TestResult::Fail;
-        }
+        expect_eq_r!(test_result, reference_match_data.error, false);
+        expect_eq_r!(test_result, test_match_data.error, false);
+        expect_ge_r!(test_result, reference_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64);
+        expect_ge_r!(test_result, test_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64);
+        expect_eq_r!(test_result, reference_match_data.match_count, test_match_data.match_count);
     }
 
     // Mofify synthetic load to contain 2s.
@@ -175,21 +157,11 @@ fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanme
         test_scanmem.write_line_stdin("= 2").unwrap();
         let test_match_data: MatchData = test_scanmem.read_match_data();
         // Validate first search regions even though we're not testing this explicitly.
-        if !expect_eq!(reference_match_data.error, false) {
-            test_result = TestResult::Fail;
-        }
-        if !expect_eq!(test_match_data.error, false) {
-            test_result = TestResult::Fail;
-        }
-        if !expect_ge!(reference_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64) {
-            test_result = TestResult::Fail;
-        }
-        if !expect_ge!(test_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64) {
-            test_result = TestResult::Fail;
-        }
-        if !expect_eq!(reference_match_data.match_count, test_match_data.match_count) {
-            test_result = TestResult::Fail;
-        }
+        expect_eq_r!(test_result, reference_match_data.error, false);
+        expect_eq_r!(test_result, test_match_data.error, false);
+        expect_ge_r!(test_result, reference_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64);
+        expect_ge_r!(test_result, test_match_data.match_count, SYNTHETIC_LOAD_SIZE as u64);
+        expect_eq_r!(test_result, reference_match_data.match_count, test_match_data.match_count);
     }
 
     // Cleanup.
