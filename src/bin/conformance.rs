@@ -15,9 +15,9 @@ struct Cli {
     #[arg(long)]
     test_scanmem_program: String,
 
-    /// Number of threads scanmem will use to scan, set to -1 if multi threading is not supported by the scanmem program. 
-    #[arg(short = 't', long, default_value_t = -1)]
-    nthreads: i32,
+    /// Number of threads scanmem will use to scan, set to 0 to autodetect. 
+    #[arg(short = 't', long, default_value_t = 0)]
+    nthreads: u32,
 
     /// Timeout test if time elapsed is longer than specified (in seconds), 0 disables timeout.
     //#[arg(short = 'T', long, default_value_t = 0)]
@@ -29,6 +29,10 @@ struct Cli {
     /// List available tests and exit.
     #[arg(short = 'l', long, default_value_t = false)]
     list_tests: bool,
+
+    /// Specify test to run, if this is not set the test suite will run all tests.
+    #[arg(long)]
+    test: Option<String>,
 
     /// csv output
     //#[arg[long]]
@@ -45,10 +49,10 @@ enum TestResult {
     Fail,
 }
 
-type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> TestResult;
+type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: u32, verbose: bool) -> TestResult;
 
 /// Returns match count on success.
-fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthreads: i32, verbose: bool) -> Result<u64, String> {
+fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthreads: u32, verbose: bool) -> Result<u64, String> {
     // Create scanmem child process
     let mut scanmem_process = scanmem_driver::ScanmemDriver::create(scanmem_program, target_pid, nthreads, verbose).unwrap();
 
@@ -71,7 +75,7 @@ fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthr
     }
 }
 
-fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> TestResult {
+fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: u32, verbose: bool) -> TestResult {
     
     const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
 
@@ -116,9 +120,8 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     return test_result;
 }
 
-fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, nthreads: i32, verbose: bool) -> TestResult {
-    //const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
-    const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000_0usize;
+fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, nthreads: u32, verbose: bool) -> TestResult {
+    const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
 
     // Create synthetic_load child process and init.
     let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
@@ -134,7 +137,6 @@ fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanme
     // Create scanmem child processes.
     let mut reference_scanmem = scanmem_driver::ScanmemDriver::create(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose).unwrap();
     let mut test_scanmem = scanmem_driver::ScanmemDriver::create(test_scanmem_program, synthetic_load_process_pid, nthreads, verbose).unwrap();
-
     let mut test_result = TestResult::Pass;
 
     {
@@ -233,7 +235,7 @@ fn main() -> ExitCode {
 
     let cli = Cli::parse();
 
-    let test_list: Vec<TestScenario> = vec![
+    let mut test_list: Vec<TestScenario> = vec![
         TestScenario{
             name: "SearchRegions".into(),
             description: "Fill target process with random bytes, then call scanmem with \"= 1; q;\". Compare matches found to reference.".into(),
@@ -245,6 +247,11 @@ fn main() -> ExitCode {
             perform_benchmark_scenario_func: scenario_func_test_check_matches
         },
     ];
+
+    // Filter tests if necessary
+    if let Some(selected_test_name) = cli.test.as_ref() {
+        test_list.retain(|t|t.name == *selected_test_name);
+    }
 
     if cli.list_tests {
 

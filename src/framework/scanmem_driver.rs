@@ -79,7 +79,7 @@ impl Drop for ScanmemDriver {
 }
 
 impl ScanmemDriver {
-    pub fn create(scanmem_program: &str, target_process_pid: u32, nthreads: i32, verbose: bool) -> std::io::Result<ScanmemDriver> {
+    pub fn create(scanmem_program: &str, target_process_pid: u32, nthreads: u32, verbose: bool) -> std::io::Result<ScanmemDriver> {
         
         
         // Compile args.

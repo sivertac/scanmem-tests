@@ -16,8 +16,8 @@ struct Cli {
     benchmark: Option<String>,
 
     /// Number of threads scanmem will use to scan, set to -1 if multi threading is not supported by the scanmem program. 
-    #[arg(short = 't', long, default_value_t = -1)]
-    nthreads: i32,
+    #[arg(short = 't', long, default_value_t = 0)]
+    nthreads: u32,
 
     /// Minimum size of synthetic load at start (in bytes).
     #[arg(long, default_value_t = 0x1_000_000u64)]
@@ -87,7 +87,7 @@ struct BenckmarkReport {
     // metadata
     scanmem_program: String,
     benchmark_name: String,
-    nthreads: i32,
+    nthreads: u32,
     minbytes: u64,
     maxbytes: u64,
     stepbytes: u64,
@@ -135,9 +135,9 @@ fn benchmark_report_to_csv(report: &BenckmarkReport) -> String {
     return ret;
 }
 
-type BenchmarkScenarioFunc = fn(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: i32, verbose: bool) -> Result<(), String>;
+type BenchmarkScenarioFunc = fn(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: u32, verbose: bool) -> Result<(), String>;
 
-fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: i32, verbose: bool, match_count: &mut u64) -> Result<(), String> {
+fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: &Vec<&str>, target_process_pid: u32, nthreads: u32, verbose: bool, match_count: &mut u64) -> Result<(), String> {
     
     // Create scanmem child process
     let mut scanmem_process = scanmem_driver::ScanmemDriver::create(scanmem_program, target_process_pid, nthreads, verbose).unwrap();
@@ -166,7 +166,7 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
     return Ok(())
 }
 
-fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: i32, verbose: bool) -> Result<(), String> {
+fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: u32, verbose: bool) -> Result<(), String> {
 
     let scanmem_commands = vec!["= 1", "exit"];
 
