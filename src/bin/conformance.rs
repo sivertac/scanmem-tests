@@ -58,14 +58,14 @@ fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthr
     let scanmem_exit_status = scanmem_process.wait().unwrap();
 
     if !scanmem_exit_status.success() {
-        return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
+        return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status));
     }
 
     if !match_data.error {
-        return Ok(match_data.match_count);
+        Ok(match_data.match_count)
     }
     else {
-        return Err("Error: Interactive error detected during execution of scanmem, look at stderr output for more info".into());
+        Err("Error: Interactive error detected during execution of scanmem, look at stderr output for more info".into())
     }
 }
 
@@ -105,11 +105,11 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 
     let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {
-        println!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string());
+        println!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status);
         test_result = TestResult::Fail;
     }
 
-    return test_result;
+    test_result
 }
 
 fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, nthreads: u32, verbose: bool) -> TestResult {
@@ -170,11 +170,11 @@ fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanme
     let reference_scanmem_exit_status = reference_scanmem.wait().unwrap();
     let test_scanmem_exit_status = test_scanmem.wait().unwrap();
     if !reference_scanmem_exit_status.success() {
-        println!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", reference_scanmem_exit_status.code().unwrap(), reference_scanmem_exit_status.to_string());
+        println!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", reference_scanmem_exit_status.code().unwrap(), reference_scanmem_exit_status);
         test_result = TestResult::Fail;
     }
     if !test_scanmem_exit_status.success() {
-        println!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", test_scanmem_exit_status.code().unwrap(), test_scanmem_exit_status.to_string());
+        println!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", test_scanmem_exit_status.code().unwrap(), test_scanmem_exit_status);
         test_result = TestResult::Fail;
     }
 
@@ -183,11 +183,11 @@ fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanme
 
     let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {
-        println!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string());
+        println!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status);
         test_result = TestResult::Fail;
     }
 
-    return test_result;
+    test_result
 }
 
 struct TestScenario {
@@ -197,7 +197,7 @@ struct TestScenario {
 }
 
 fn test_result_to_string(test_result: &TestResult) -> String {
-    return match test_result {
+    match test_result {
         TestResult::Fail => "Fail".into(),
         TestResult::Pass => "Pass".into()
     }
@@ -276,5 +276,5 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    return ExitCode::SUCCESS;
+    ExitCode::SUCCESS
 }

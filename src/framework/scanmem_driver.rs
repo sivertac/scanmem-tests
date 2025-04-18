@@ -44,7 +44,7 @@ fn read_scanmem_versions(scanmem_program: &str, verbose: bool) -> std::io::Resul
         println!("scanmem versions: {:?}", versions);
     }
     
-    return Ok(versions); 
+    Ok(versions)
 }
 
 fn check_if_scanmem_program_supports_multithreading(scanmem_program: &str, verbose: bool) -> std::io::Result<bool> {
@@ -57,7 +57,7 @@ fn check_if_scanmem_program_supports_multithreading(scanmem_program: &str, verbo
         println!("Scanmem ({}) supports multithreading.", scanmem_program);
     }
 
-    return Ok(scanmem_supports_multithreading);
+    Ok(scanmem_supports_multithreading)
 }
 
 pub struct ScanmemDriver {
@@ -93,10 +93,10 @@ impl ScanmemDriver {
         // Create scanmem child process.
         let mut process = ScanmemDriver {
             child_process: Command::new(scanmem_program).args(args_vec).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?,
-            verbose: verbose,
+            verbose,
             stdout_thread: None,
             stderr_thread: None,
-            match_data: Arc::new((Mutex::new(None.into()), Condvar::new())),
+            match_data: Arc::new((Mutex::new(None), Condvar::new())),
         };
 
         process.start_stdout_thread()?;
@@ -106,7 +106,7 @@ impl ScanmemDriver {
             println!("Starting scanmem child process, pid = {}", process.child_process.id());
         }
 
-        return Ok(process);
+        Ok(process)
     }
 
     fn start_stdout_thread(&mut self) -> std::io::Result<()> {
@@ -117,7 +117,7 @@ impl ScanmemDriver {
             internal_drain_stream(&mut stdout_stream, pid, verbose, "stdout").unwrap();
         }));
 
-        return Ok(());
+        Ok(())
     }
 
     fn start_stderr_thread(&mut self) -> std::io::Result<()> {
@@ -146,7 +146,7 @@ impl ScanmemDriver {
                     buf = res.ok().unwrap();
                 }
 
-                if buf.len() == 0 {
+                if buf.is_empty() {
                     break;
                 }
 
@@ -179,7 +179,7 @@ impl ScanmemDriver {
             }
         }));
 
-        return Ok(());
+        Ok(())
     }
 
     // Blocks until match data is read from scanmem process, a scan must have been sent to scanmem before this function is called, this will block until the match is read, if not this will block forever.
@@ -192,17 +192,17 @@ impl ScanmemDriver {
         }
 
         // Read and reset.
-        let match_data = guard.take().unwrap();
+        
 
-        return match_data;
+        guard.take().unwrap()
     }
 
     pub fn get_pid(&self) -> u32 {
-        return self.child_process.id();
+        self.child_process.id()
     }
 
     pub fn wait(&mut self) -> std::io::Result<ExitStatus> {
-        return self.child_process.wait();
+        self.child_process.wait()
     }
 
     //pub fn write_all_stdin(&self, data: &str) -> std::io::Result<()> {

@@ -23,52 +23,52 @@ impl SyntheticLoadDriver {
         
         let process = SyntheticLoadDriver {
             child_process: Command::new(synthetic_load_program).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?,
-            verbose: verbose
+            verbose
         };
 
         if process.verbose {
             println!("Starting synthetic_load child process, pid = {}", process.child_process.id());
         }
 
-        return Ok(process);
+        Ok(process)
     }
 
     /// Exit child process, will drain stdout.
     pub fn command_exit(&mut self) -> std::io::Result<()> {
-        self.write_line_stdin(format!("exit").as_str())?;
-        return self.drain_stdout();
+        self.write_line_stdin("exit".to_string().as_str())?;
+        self.drain_stdout()
     }
 
     /// Send command and wait for "Done" message.
     pub fn command_set_memory_size(&mut self, size: usize) -> std::io::Result<()> {
         self.write_line_stdin(format!("set-memory-size {}", size).as_str())?;
-        return self.read_until_line_stdout("Done");
+        self.read_until_line_stdout("Done")
     }
 
     /// Send command and wait for "Done" message.
     pub fn command_fill(&mut self, value: u8) -> std::io::Result<()> {
         self.write_line_stdin(format!("fill {}", value).as_str())?;
-        return self.read_until_line_stdout("Done");
+        self.read_until_line_stdout("Done")
     }
 
     /// Send command and wait for "Done" message.
     pub fn command_fill_random(&mut self, seed: u64) -> std::io::Result<()> {
         self.write_line_stdin(format!("fill-random {}", seed).as_str())?;
-        return self.read_until_line_stdout("Done");
+        self.read_until_line_stdout("Done")
     }
 
     /// Send command and wait for "Done" message.
     pub fn command_set_address(&mut self, address: usize, value: u8) -> std::io::Result<()> {
         self.write_line_stdin(format!("set-address {} {}", address, value).as_str())?;
-        return self.read_until_line_stdout("Done");
+        self.read_until_line_stdout("Done")
     }
 
     pub fn get_pid(&self) -> u32 {
-        return self.child_process.id();
+        self.child_process.id()
     }
 
     pub fn wait(&mut self) -> std::io::Result<ExitStatus> {
-        return self.child_process.wait();
+        self.child_process.wait()
     }
 
     fn read_line_stdout(&mut self) -> std::io::Result<String> {

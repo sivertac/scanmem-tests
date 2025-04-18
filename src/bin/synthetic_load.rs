@@ -49,7 +49,7 @@ fn prepare_input_line(line: &String) -> Vec<String> {
 
     // append PROMPT to front so clap will work
     v.insert(0, PROMPT.to_string());
-    return v;
+    v
 }
 
 fn set_memory_size(state: &mut State, new_size: usize) {

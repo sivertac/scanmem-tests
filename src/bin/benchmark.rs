@@ -105,7 +105,7 @@ fn create_csv_row(elements: &Vec<&str>) -> String {
         ret.push_str(e);
         ret.push(',');
     }
-    return ret;
+    ret
 }
 
 fn benchmark_report_to_csv(report: &BenckmarkReport) -> String {
@@ -132,7 +132,7 @@ fn benchmark_report_to_csv(report: &BenckmarkReport) -> String {
         }
     }
 
-    return ret;
+    ret
 }
 
 type BenchmarkScenarioFunc = fn(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: u32, verbose: bool) -> Result<(), String>;
@@ -153,17 +153,17 @@ fn scenario_func_fill_random_iteration(scanmem_program: &str, scanmem_commands: 
     // Assume the end of the scanmem program ends with "exit".
     let scanmem_exit_status = scanmem_process.wait().unwrap();
     if !scanmem_exit_status.success() {
-        return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status.to_string()));
+        return Err(format!("Error: scanmem did not exit successfully, ExitStatus = {} ({})", scanmem_exit_status.code().unwrap(), scanmem_exit_status));
     }
 
     let error = match_data.error;
     *match_count = match_data.match_count;
 
     if error {
-        return Err(format!("Error: Interactive error detected during execution of scanmem, look at stderr output for more info"));
+        return Err("Error: Interactive error detected during execution of scanmem, look at stderr output for more info".to_string());
     }
     
-    return Ok(())
+    Ok(())
 }
 
 fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str, synthetic_load_program: &str, synthetic_load_size: u64, synthetic_load_random_seed: u64, iteration_count: usize, nthreads: u32, verbose: bool) -> Result<(), String> {
@@ -192,7 +192,7 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
         scenario_func_fill_random_iteration(scanmem_program, &scanmem_commands, synthetic_load_process_pid, nthreads, verbose, &mut match_count)?;
         
         let duration = SystemTime::now().duration_since(start).map_err(|e|e.to_string())?;
-        iterations.push(BenchmarkIteration{benchmark_time: duration, match_count: match_count});
+        iterations.push(BenchmarkIteration{benchmark_time: duration, match_count});
     }
 
     // Exit synthetic_load.
@@ -200,12 +200,12 @@ fn scenario_func_fill_random(result: &mut BenchmarkResult, scanmem_program: &str
 
     let synthetic_load_exit_status = synthetic_load_process.wait().unwrap();
     if !synthetic_load_exit_status.success() {
-        return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status.to_string()));
+        return Err(format!("Error: synthetic_load did not exit successfully, ExitStatus = {} ({})", synthetic_load_exit_status.code().unwrap(), synthetic_load_exit_status));
     }
 
     result.total_time = SystemTime::now().duration_since(total_start_time).map_err(|e|e.to_string())?;
 
-    return Ok(())
+    Ok(())
 }
 
 struct BenchmarkScenario {
@@ -237,21 +237,21 @@ fn main() -> ExitCode {
     }
 
     // Select benchmark scenario.
-    let benchmark_name: String;
+    
     if cli.benchmark.is_none() {
         println!("Error: No benchmark selected.");
         return ExitCode::FAILURE;
     }
-    benchmark_name = cli.benchmark.unwrap();
+    let benchmark_name: String = cli.benchmark.unwrap();
 
-    let benchmark_scenario; 
-    match benchmark_list.iter().find(|x|x.name.eq_ignore_ascii_case(&benchmark_name)) {
-        Some(x) => benchmark_scenario = x,
+     
+    let benchmark_scenario = match benchmark_list.iter().find(|x|x.name.eq_ignore_ascii_case(&benchmark_name)) {
+        Some(x) => x,
         None => {
             println!("Error: Benchmark \"{}\" not found.", benchmark_name);
             return ExitCode::FAILURE;
         }
-    }
+    };
 
     let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(synthetic_load_driver::SYNTHETIC_LOAD_NAME);
     
@@ -313,5 +313,5 @@ fn main() -> ExitCode {
         println!("{}", csv_data);
     }
 
-    return ExitCode::SUCCESS
+    ExitCode::SUCCESS
 }
