@@ -81,6 +81,13 @@ pub fn bool_to_test_result(v: bool) -> TestResult {
     }
 }
 
+pub fn test_result_to_string(test_result: &TestResult) -> String {
+    match test_result {
+        TestResult::Fail => "Fail".into(),
+        TestResult::Pass => "Pass".into()
+    }
+}
+
 #[macro_export]
 macro_rules! expect_eq {
     ($left:expr, $right:expr) => {{

@@ -15,10 +15,6 @@ struct Cli {
     #[arg(long)]
     test_scanmem_program: String,
 
-    /// Number of threads scanmem will use to scan, set to 0 to autodetect. 
-    #[arg(short = 't', long, default_value_t = 0)]
-    nthreads: u32,
-
     /// Timeout test if time elapsed is longer than specified (in seconds), 0 disables timeout.
     //#[arg(short = 'T', long, default_value_t = 0)]
     //timeout: u64,
@@ -43,7 +39,7 @@ struct Cli {
     verbose: bool,
 }
 
-type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: u32, verbose: bool) -> TestResult;
+type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult;
 
 /// Returns match count on success.
 fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthreads: u32, verbose: bool) -> Result<u64, String> {
@@ -69,8 +65,14 @@ fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthr
     }
 }
 
-fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, nthreads: u32, verbose: bool) -> TestResult {
+fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
     
+    // How many threads to use.
+    const FIXTURE_DATA: [u32; 6] = [
+        1, 2, 3, 11, 20, 32
+    ];
+    let nthreads = FIXTURE_DATA[fixture_index];
+
     const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
 
     // Create synthetic_load child process and init.
@@ -112,8 +114,14 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     test_result
 }
 
-fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, nthreads: u32, verbose: bool) -> TestResult {
+fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
     const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
+
+    // How many threads to use.
+    const FIXTURE_DATA: [u32; 6] = [
+        1, 2, 3, 11, 20, 32
+    ];
+    let nthreads = FIXTURE_DATA[fixture_index];
 
     // Create synthetic_load child process and init.
     let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
@@ -194,13 +202,11 @@ struct TestScenario {
     name: String,
     description: String,
     perform_benchmark_scenario_func: TestScenarioFunc,
+    num_fixtures: usize,
 }
 
-fn test_result_to_string(test_result: &TestResult) -> String {
-    match test_result {
-        TestResult::Fail => "Fail".into(),
-        TestResult::Pass => "Pass".into()
-    }
+fn create_test_id_string(test_name: &str, fixture_index: usize) -> String {
+    format!("{}.{}", test_name, fixture_index)
 }
 
 fn main() -> ExitCode {
@@ -211,12 +217,14 @@ fn main() -> ExitCode {
         TestScenario{
             name: "SearchRegions".into(),
             description: "Fill target process with random bytes, then call scanmem with \"= 1; q;\". Compare matches found to reference.".into(),
-            perform_benchmark_scenario_func: scenario_func_test_search_regions
+            perform_benchmark_scenario_func: scenario_func_test_search_regions,
+            num_fixtures: 6,
         },
         TestScenario{
             name: "CheckMatches".into(),
             description: "Fill target process with 1s, and call scanmem with \"= 1\". Then modify target process to contain 2s, and call scanmem with \"= 2\". Compare matches found to reference.".into(),
-            perform_benchmark_scenario_func: scenario_func_test_check_matches
+            perform_benchmark_scenario_func: scenario_func_test_check_matches,
+            num_fixtures: 6,
         },
     ];
 
@@ -238,32 +246,40 @@ fn main() -> ExitCode {
     let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(synthetic_load_driver::SYNTHETIC_LOAD_NAME);
     
     // Run tests.
-    let test_count = test_list.len();
     let mut test_result_list = vec![];
     for test in &test_list {
-        // Execute test
-        if cli.verbose {
-            println!("Starting test: {}", test.name);
+        let mut test_fixture_results = vec![];
+        for fixture_index in 0..test.num_fixtures {
+            let test_id_string = create_test_id_string(&test.name, fixture_index);
+
+            // Execute test
+            if cli.verbose {
+                println!("Starting test: {}", test_id_string);
+            }
+            let fixture_result = (test.perform_benchmark_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, fixture_index, cli.verbose);
+            test_fixture_results.push(fixture_result);
+            if cli.verbose {
+                println!("Ending test: {}", test_id_string);
+            }
         }
-        let test_result = (test.perform_benchmark_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, cli.nthreads, cli.verbose);
-        test_result_list.push(test_result);
-        if cli.verbose {
-            println!("Ending test: {}", test.name);
-        }
+        test_result_list.push(test_fixture_results);
     }
 
-    let pass_count = test_result_list.iter().filter(|e|**e == TestResult::Pass).count();
-    let fail_count = test_result_list.iter().filter(|e|**e == TestResult::Fail).count();
+    let test_count = test_result_list.iter().flatten().count();
+    let pass_count = test_result_list.iter().flatten().filter(|e|**e == TestResult::Pass).count();
+    let fail_count = test_result_list.iter().flatten().filter(|e|**e == TestResult::Fail).count();
 
     // Print results.
     println!("==================================");
     println!("Test results");
     println!("==================================");
-    for i in 0..test_list.len() {
-        let test_result = &test_result_list[i];
-        let test_name = &test_list[i].name;
-
-        println!("{}: {}", test_result_to_string(test_result), test_name);
+    for test_index in 0..test_list.len() {
+        let test_fixture_results = &test_result_list[test_index];
+        let test_name = &test_list[test_index].name;
+        let fixture_count = test_list[test_index].num_fixtures;
+        for fixture_index in 0..fixture_count {
+            println!("{}: {}", utils::test_result_to_string(&test_fixture_results[fixture_index]), create_test_id_string(test_name, fixture_index));
+        }
     }
     println!("==================================");
     println!("Test results summary");
