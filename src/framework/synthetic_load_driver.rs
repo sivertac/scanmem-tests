@@ -3,6 +3,10 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 
 use crate::utils::*;
 
+use nix::sys::wait::WaitStatus;
+use nix::unistd::Pid;
+use nix::sys;
+
 pub static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
 
 pub struct SyntheticLoadDriver {
@@ -31,6 +35,58 @@ impl SyntheticLoadDriver {
         }
 
         Ok(process)
+    }
+
+    fn send_signal(pid: Pid, signal: sys::signal::Signal) -> std::io::Result<()> {
+        sys::signal::kill(pid, signal).map_err(|_e| {
+            println!("Error! kill failed!");
+            std::io::ErrorKind::Other
+        })?;
+        Ok(())
+    }
+    
+    pub fn send_sigstop(&self) -> std::io::Result<()> {
+        let pid: Pid = Pid::from_raw(self.child_process.id().try_into().unwrap());
+        SyntheticLoadDriver::send_signal(pid, sys::signal::SIGSTOP)?;
+        let res = sys::wait::waitpid( pid,Some(sys::wait::WaitPidFlag::WSTOPPED)).map_err(|_e|  {
+            println!("Error! waidpid failed!");
+            std::io::ErrorKind::Other
+        })?;
+        
+        match res {
+            WaitStatus::Stopped(p, sig) => {
+                if self.verbose {
+                    println!("Stopped synthetic_load child process, pid = {}, sig = {}", p, sig);
+                }
+            },
+            _status => {
+                println!("Error! unexpected signal received!");
+                return Err(std::io::ErrorKind::Other.into());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn send_sigcont(&self) -> std::io::Result<()> {
+        let pid: Pid = Pid::from_raw(self.child_process.id().try_into().unwrap());
+        SyntheticLoadDriver::send_signal(pid, sys::signal::SIGCONT)?;
+        let res = sys::wait::waitpid( pid,Some(sys::wait::WaitPidFlag::WCONTINUED)).map_err(|_e|  {
+            println!("Error! waidpid failed!");
+            std::io::ErrorKind::Other
+        })?;
+        
+        match res {
+            WaitStatus::Continued(p) => {
+                if self.verbose {
+                    println!("Continued synthetic_load child process, pid = {}", p);
+                }
+            },
+            _status => {
+                println!("Error! unexpected signal received!");
+                return Err(std::io::ErrorKind::Other.into());
+            }
+        }
+        Ok(())
     }
 
     /// Exit child process, will drain stdout.

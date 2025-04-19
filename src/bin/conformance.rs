@@ -82,7 +82,10 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
     // Init synthetic_load.
     synthetic_load_process.command_set_memory_size(SYNTHETIC_LOAD_SIZE).unwrap();
     synthetic_load_process.command_fill_random(synthetic_load_random_seed).unwrap();
-
+    
+    // To make sure the memory of the target process is the same between scans, manually stop the target process before we attach scanmem processes.
+    synthetic_load_process.send_sigstop().unwrap();
+    
     // Run test
     let reference_res = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
     if let Err(s) = reference_res {
@@ -102,6 +105,8 @@ fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanm
 
     expect_eq_r!(test_result, test_match_count, reference_match_count);
 
+    // Resume target process such that it can close gracefully.
+    synthetic_load_process.send_sigcont().unwrap();
     // Exit synthetic_load.
     synthetic_load_process.command_exit().unwrap();
 
@@ -131,6 +136,8 @@ fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanme
     synthetic_load_process.command_set_memory_size(SYNTHETIC_LOAD_SIZE).unwrap();
     synthetic_load_process.command_fill(0x1).unwrap();
 
+    // To make sure the memory of the target process is the same between scans, manually stop the target process before we attach scanmem processes.
+    synthetic_load_process.send_sigstop().unwrap();
 
     // Run test
 
@@ -155,7 +162,9 @@ fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanme
     }
 
     // Mofify synthetic load to contain 2s.
+    synthetic_load_process.send_sigcont().unwrap();
     synthetic_load_process.command_fill(0x2).unwrap();
+    synthetic_load_process.send_sigstop().unwrap();
 
     {
         // Perform initial search regions, find all 1s, and read match data so we know the operation is complete.
@@ -186,6 +195,8 @@ fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_scanme
         test_result = TestResult::Fail;
     }
 
+    // Resume target process such that it can close gracefully.
+    synthetic_load_process.send_sigcont().unwrap();
     // Exit synthetic_load.
     synthetic_load_process.command_exit().unwrap();
 
