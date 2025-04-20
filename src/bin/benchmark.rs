@@ -2,7 +2,7 @@
 use std::{io::Write, path, process::ExitCode, time::{Duration, SystemTime}};
 use clap::Parser;
 
-use framework::{utils, synthetic_load_driver, scanmem_driver};
+use scanmem_tests::framework::{utils, synthetic_load_driver, scanmem_driver};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

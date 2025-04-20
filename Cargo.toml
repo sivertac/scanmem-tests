@@ -13,8 +13,8 @@ regex = "1.11.1"
 rustyline = "14.0.0"
 
 [lib]
-name = "framework"
-path = "src/framework/lib.rs"
+name = "scanmem_tests"
+path = "src/lib.rs"
 
 [[bin]]
 name = "synthetic_load"
