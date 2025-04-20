@@ -90,16 +90,17 @@ pub fn test_result_to_string(test_result: &TestResult) -> String {
 
 #[macro_export]
 macro_rules! expect_eq {
-    ($left:expr, $right:expr) => {{
+    ($left:expr, $right:expr, $msg:expr) => {{
         if $left != $right {
             eprintln!(
-                "Assertion failed at {}:{}: `{}` != `{}`, Left: `{:?}` Right: `{:?}`, expected equal.",
+                "Assertion failed at {}:{}: `{}` != `{}`, Left: `{:?}` Right: `{:?}`, expected equal. {}",
                 file!(),
                 line!(),
                 stringify!($left),
                 stringify!($right),
                 $left,
-                $right
+                $right,
+                $msg
             );
             false
         } else {
@@ -110,16 +111,17 @@ macro_rules! expect_eq {
 
 #[macro_export]
 macro_rules! expect_ne {
-    ($left:expr, $right:expr) => {{
+    ($left:expr, $right:expr, $msg:expr) => {{
         if $left == $right {
             eprintln!(
-                "Assertion failed at {}:{}: `{}` == `{}`, Left: `{:?}` Right: `{:?}`, expected not equal.",
+                "Assertion failed at {}:{}: `{}` == `{}`, Left: `{:?}` Right: `{:?}`, expected not equal. {}",
                 file!(),
                 line!(),
                 stringify!($left),
                 stringify!($right),
                 $left,
-                $right
+                $right,
+                $msg
             );
             false
         } else {
@@ -130,16 +132,17 @@ macro_rules! expect_ne {
 
 #[macro_export]
 macro_rules! expect_gt {
-    ($left:expr, $right:expr) => {{
+    ($left:expr, $right:expr, $msg:expr) => {{
         if $left <= $right {
             eprintln!(
-                "Assertion failed at {}:{}: `{}` <= `{}`, Left: `{:?}` Right: `{:?}`, expected greater than.",
+                "Assertion failed at {}:{}: `{}` <= `{}`, Left: `{:?}` Right: `{:?}`, expected greater than. {}",
                 file!(),
                 line!(),
                 stringify!($left),
                 stringify!($right),
                 $left,
-                $right
+                $right,
+                $msg
             );
             false
         } else {
@@ -150,16 +153,17 @@ macro_rules! expect_gt {
 
 #[macro_export]
 macro_rules! expect_lt {
-    ($left:expr, $right:expr) => {{
+    ($left:expr, $right:expr, $msg:expr) => {{
         if $left >= $right {
             eprintln!(
-                "Assertion failed at {}:{}: `{}` >= `{}`, Left: `{:?}` Right: `{:?}`, expected less than.",
+                "Assertion failed at {}:{}: `{}` >= `{}`, Left: `{:?}` Right: `{:?}`, expected less than. {}",
                 file!(),
                 line!(),
                 stringify!($left),
                 stringify!($right),
                 $left,
-                $right
+                $right,
+                $msg
             );
             false
         } else {
@@ -170,16 +174,17 @@ macro_rules! expect_lt {
 
 #[macro_export]
 macro_rules! expect_ge {
-    ($left:expr, $right:expr) => {{
+    ($left:expr, $right:expr, $msg:expr) => {{
         if $left < $right {
             eprintln!(
-                "Assertion failed at {}:{}: `{}` < `{}`, Left: `{:?}` Right: `{:?}`, expected greater or equal.",
+                "Assertion failed at {}:{}: `{}` < `{}`, Left: `{:?}` Right: `{:?}`, expected greater or equal. {}",
                 file!(),
                 line!(),
                 stringify!($left),
                 stringify!($right),
                 $left,
-                $right
+                $right,
+                $msg
             );
             false
         } else {
@@ -190,16 +195,17 @@ macro_rules! expect_ge {
 
 #[macro_export]
 macro_rules! expect_le {
-    ($left:expr, $right:expr) => {{
+    ($left:expr, $right:expr, $msg:expr) => {{
         if $left > $right {
             eprintln!(
-                "Assertion failed at {}:{}: `{}` > `{}`, Left: `{:?}` Right: `{:?}`, expected less or equal.",
+                "Assertion failed at {}:{}: `{}` > `{}`, Left: `{:?}` Right: `{:?}`, expected less or equal. {}",
                 file!(),
                 line!(),
                 stringify!($left),
                 stringify!($right),
                 $left,
-                $right
+                $right,
+                $msg
             );
             false
         } else {
@@ -210,52 +216,70 @@ macro_rules! expect_le {
 
 #[macro_export]
 macro_rules! expect_set_result {
-    ($result:expr, $predicate:ident, $left:expr, $right:expr) => {
-        let tmp = $crate::framework::utils::bool_to_test_result($predicate!($left, $right));
+    ($result:expr, $predicate:ident, $left:expr, $right:expr, $msg:expr) => {
+        let tmp = $crate::framework::utils::bool_to_test_result($predicate!($left, $right, $msg));
         if $result == TestResult::Pass {
             $result = tmp;
         }
-    };
+    }
 }
 
 #[macro_export]
 macro_rules! expect_eq_r {
+    ($result:expr, $left:expr, $right:expr, $msg:expr) => {
+        expect_set_result!($result, expect_eq, $left, $right, $msg);
+    };
     ($result:expr, $left:expr, $right:expr) => {
-        expect_set_result!($result, expect_eq, $left, $right);
-    }
+        expect_eq_r!($result, $left, $right, "");
+    };
 }
 
 #[macro_export]
 macro_rules! expect_ne_r {
+    ($result:expr, $left:expr, $right:expr, $msg:expr) => {
+        expect_set_result!($result, expect_ne, $left, $right, $msg);
+    };
     ($result:expr, $left:expr, $right:expr) => {
-        expect_set_result!($result, expect_ne, $left, $right);
-    }
+        expect_ne_r!($result, $left, $right, "");
+    };
 }
 
 #[macro_export]
 macro_rules! expect_gt_r {
+    ($result:expr, $left:expr, $right:expr, $msg:expr) => {
+        expect_set_result!($result, expect_gt, $left, $right, $msg);
+    };
     ($result:expr, $left:expr, $right:expr) => {
-        expect_set_result!($result, expect_gt, $left, $right);
-    }
+        expect_gt_r!($result, $left, $right, "");
+    };
 }
 
 #[macro_export]
 macro_rules! expect_lt_r {
+    ($result:expr, $left:expr, $right:expr, $msg:expr) => {
+        expect_set_result!($result, expect_lt, $left, $right, $msg);
+    };
     ($result:expr, $left:expr, $right:expr) => {
-        expect_set_result!($result, expect_lt, $left, $right);
-    }
+        expect_lt_r!($result, $left, $right, "");
+    };
 }
 
 #[macro_export]
 macro_rules! expect_ge_r {
+    ($result:expr, $left:expr, $right:expr, $msg:expr) => {
+        expect_set_result!($result, expect_ge, $left, $right, $msg);
+    };
     ($result:expr, $left:expr, $right:expr) => {
-        expect_set_result!($result, expect_ge, $left, $right);
-    }
+        expect_ge_r!($result, $left, $right, "");
+    };
 }
 
 #[macro_export]
 macro_rules! expect_le_r {
+    ($result:expr, $left:expr, $right:expr, $msg:expr) => {
+        expect_set_result!($result, expect_le, $left, $right, $msg);
+    };
     ($result:expr, $left:expr, $right:expr) => {
-        expect_set_result!($result, expect_le, $left, $right);
-    }
+        expect_le_r!($result, $left, $right, "");
+    };
 }

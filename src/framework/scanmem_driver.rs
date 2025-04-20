@@ -79,9 +79,8 @@ impl Drop for ScanmemDriver {
 }
 
 impl ScanmemDriver {
+    /// Setting nthreads = 0 is the same as autodetecting thread count.
     pub fn create(scanmem_program: &str, target_process_pid: u32, nthreads: u32, verbose: bool) -> std::io::Result<ScanmemDriver> {
-        
-        
         // Compile args.
         let mut args: String = format!("--pid={}", target_process_pid);
         let scanmem_supports_multithreading = check_if_scanmem_program_supports_multithreading(scanmem_program, verbose)?;

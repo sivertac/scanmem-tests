@@ -32,42 +32,60 @@ fn test_search_regions_scanmem_part(scanmem_program: &str, target_pid: u32, nthr
 pub fn scenario_func_test_search_regions(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
     
     // How many threads to use.
-    const FIXTURE_DATA: [u32; 6] = [
+    const THREAD_COUNT_ARRAY: [u32; 6] = [
         1, 2, 3, 11, 20, 32
     ];
-    let nthreads = FIXTURE_DATA[fixture_index];
 
-    const SYNTHETIC_LOAD_SIZE: usize = 0x1_000_000usize;
+    // Corresponds to fixture index.
+    const SYNTHETIC_LOAD_SIZE_ARRAY: [usize; 6] = [
+        0x0usize,
+        0x100usize,
+        0x1_000usize,
+        0x10_000usize,
+        0x1_000_000usize,
+        0x10_000_000usize,
+    ];
+    let synthetic_load_size = SYNTHETIC_LOAD_SIZE_ARRAY[fixture_index];
 
     // Create synthetic_load child process and init.
     let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
     let synthetic_load_process_pid = synthetic_load_process.get_pid();
 
     // Init synthetic_load.
-    synthetic_load_process.command_set_memory_size(SYNTHETIC_LOAD_SIZE).unwrap();
+    synthetic_load_process.command_set_memory_size(synthetic_load_size).unwrap();
     synthetic_load_process.command_fill_random(synthetic_load_random_seed).unwrap();
     
     // To make sure the memory of the target process is the same between scans, manually stop the target process before we attach scanmem processes.
     synthetic_load_process.send_sigstop().unwrap();
     
     // Run test
-    let reference_res = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
+
+    // Capture reference result, we only need one reference since we are assuming the reference scanmem program is correct.
+    let reference_res = test_search_regions_scanmem_part(reference_scanmem_program, synthetic_load_process_pid, 0, verbose);
     if let Err(s) = reference_res {
         println!("{}", s);
         return TestResult::Fail;
     }
     let reference_match_count = reference_res.unwrap();
 
-    let test_res = test_search_regions_scanmem_part(test_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
-    if let Err(s) = test_res {
-        println!("{}", s);
-        return TestResult::Fail;
+    // Capture test results for each thread config.
+    let mut test_match_count_list = vec![];
+    for i in 0..THREAD_COUNT_ARRAY.len() {
+        let nthreads = THREAD_COUNT_ARRAY[i];
+        let test_res = test_search_regions_scanmem_part(test_scanmem_program, synthetic_load_process_pid, nthreads, verbose);
+        if let Err(s) = test_res {
+            println!("{}", s);
+            return TestResult::Fail;
+        }
+        test_match_count_list.push(test_res.unwrap());
     }
-    let test_match_count = test_res.unwrap();
-
+    
     let mut test_result = TestResult::Pass;
-
-    expect_eq_r!(test_result, test_match_count, reference_match_count);
+    
+    // Verify.
+    for i in 0..THREAD_COUNT_ARRAY.len() {
+        expect_eq_r!(test_result, test_match_count_list[i], reference_match_count, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
+    }
 
     // Resume target process such that it can close gracefully.
     synthetic_load_process.send_sigcont().unwrap();
