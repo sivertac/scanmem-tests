@@ -74,14 +74,14 @@ fn main() -> ExitCode {
     let mut test_result_list = vec![];
     for test in &test_list {
         let mut test_fixture_results = vec![];
-        for fixture_index in 0..test.fixtures_count {
+        for fixture_index in 0..test.fixture_count {
             let test_id_string = create_test_id_string(&test.name, fixture_index);
 
             // Execute test
             if cli.verbose {
                 println!("Starting test: {}", test_id_string);
             }
-            let fixture_result = (test.perform_benchmark_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, fixture_index, cli.verbose);
+            let fixture_result = (test.perform_test_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, fixture_index, cli.verbose);
             test_fixture_results.push(fixture_result);
             if cli.verbose {
                 println!("Ending test: {}", test_id_string);
@@ -101,7 +101,7 @@ fn main() -> ExitCode {
     for test_index in 0..test_list.len() {
         let test_fixture_results = &test_result_list[test_index];
         let test_name = &test_list[test_index].name;
-        let fixture_count = test_list[test_index].fixtures_count;
+        let fixture_count = test_list[test_index].fixture_count;
         for fixture_index in 0..fixture_count {
             println!("{}: {}", utils::test_result_to_string(&test_fixture_results[fixture_index]), create_test_id_string(test_name, fixture_index));
         }
