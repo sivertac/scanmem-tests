@@ -4,6 +4,7 @@ use crate::framework::utils::TestResult;
 mod test_search_regions;
 mod test_check_matches;
 mod test_snapshot;
+mod test_data_types;
 
 pub type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult;
 
@@ -31,9 +32,15 @@ pub fn get_test_list() -> Vec<TestScenario> {
         },
         TestScenario{
             name: "Snapshot".into(),
-            description: "Test snapshot feature of scanmem. Take snapshot of target process.".into(),
+            description: "Test snapshot feature of scanmem. Take snapshot of target process and compare to reference.".into(),
             perform_test_scenario_func: test_snapshot::scenario_func_test_snapshot,
             fixture_count: 1,
+        },
+        TestScenario{
+            name: "DataTypesFixedSize".into(),
+            description: "Test all supported fixed size data types.".into(),
+            perform_test_scenario_func: test_data_types::scenario_func_test_data_types_fixed_size,
+            fixture_count: test_data_types::TEST_DATA_TYPES_FIXED_SIZE_FIXTURE_COUNT,
         },
     ]
 }

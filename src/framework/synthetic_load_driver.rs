@@ -7,6 +7,8 @@ use nix::sys::wait::WaitStatus;
 use nix::unistd::Pid;
 use nix::sys;
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+
 pub static SYNTHETIC_LOAD_NAME: &str = "synthetic_load";
 
 pub struct SyntheticLoadDriver {
@@ -110,6 +112,16 @@ impl SyntheticLoadDriver {
     /// Send command and wait for "Done" message.
     pub fn command_fill_random(&mut self, seed: u64) -> std::io::Result<()> {
         self.write_line_stdin(format!("fill-random {}", seed).as_str())?;
+        self.read_until_line_stdout("Done")
+    }
+
+    /// Send command and wait for "Done" message.
+    pub fn command_fill_bytearray(&mut self, bytearray: &[u8]) -> std::io::Result<()> {
+
+        // encode bytearray.
+        let encoded_array = STANDARD.encode(bytearray);
+
+        self.write_line_stdin(format!("fill-base64-array {}", encoded_array).as_str())?;
         self.read_until_line_stdout("Done")
     }
 

@@ -1,9 +1,11 @@
 
+
 use clap::{Parser, Subcommand};
 use clap_num::maybe_hex;
 use rustyline::error::ReadlineError;
 use rustyline::{DefaultEditor, Result};
 use rand::{Rng, SeedableRng};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -27,6 +29,9 @@ enum Commands {
     FillRandom {
         #[clap(value_parser=maybe_hex::<u64>)]
         seed: u64
+    },
+    FillBase64Array {
+        value_str: String
     },
     SetAddress {
         #[clap(value_parser=maybe_hex::<usize>)]
@@ -67,6 +72,16 @@ fn fill_memory_random(state: &mut State, seed: u64) {
     state.memory.fill_with(||rng.sample(distr));
 }
 
+fn fill_base64_array(state: &mut State, value_str: String) {
+    // decode base64
+    let value = STANDARD.decode(value_str).unwrap();
+    
+    // fill
+    for i in 0..state.memory.len() {
+        state.memory[i] = value[i % value.len()];
+    }
+}
+
 fn set_address(state: &mut State, address: usize, value: u8) {
     if state.memory.is_empty() {
         println!("memory empty");
@@ -96,6 +111,7 @@ fn perform_command(state: &mut State, cli: Cli) {
         Commands::Info => print_info(state),
         Commands::Fill { value } => fill_memory(state, value),
         Commands::FillRandom { seed } => fill_memory_random(state, seed),
+        Commands::FillBase64Array { value_str } => fill_base64_array(state, value_str),
         Commands::SetAddress { address, value } => set_address(state, address, value),
         _ => {
             
