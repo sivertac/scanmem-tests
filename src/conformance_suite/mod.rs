@@ -42,5 +42,11 @@ pub fn get_test_list() -> Vec<TestScenario> {
             perform_test_scenario_func: test_data_types::scenario_func_test_data_types_fixed_size,
             fixture_count: test_data_types::TEST_DATA_TYPES_FIXED_SIZE_FIXTURE_COUNT,
         },
+        TestScenario{
+            name: "DataTypesString".into(),
+            description: "Test string data type.".into(),
+            perform_test_scenario_func: test_data_types::scenario_func_test_data_types_string,
+            fixture_count: test_data_types::TEST_DATA_TYPES_STRING_FIXTURE_COUNT,
+        },
     ]
 }

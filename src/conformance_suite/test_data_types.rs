@@ -5,8 +5,6 @@ use crate::framework::scanmem_driver::MatchData;
 use crate::framework::scanmem_driver;
 use crate::*;
 
-pub const TEST_DATA_TYPES_FIXED_SIZE_FIXTURE_COUNT: usize = 9;
-
 fn data_type_to_bytearray(data_type: &str, value: &str) -> Vec<u8> {
     match data_type {
         "number" => {
@@ -44,7 +42,13 @@ fn data_type_to_bytearray(data_type: &str, value: &str) -> Vec<u8> {
         "float64" => {
             let v: f64 = value.parse().unwrap(); 
             v.to_le_bytes().to_vec()
-        }   , 
+        },
+        "bytearray" => {
+            scanmem_bytearray_to_bytes(value).unwrap()
+        },
+        "string" => { 
+            value.as_bytes().to_vec()
+        },
         _ => {
             assert!(false);
             vec![]
@@ -52,99 +56,108 @@ fn data_type_to_bytearray(data_type: &str, value: &str) -> Vec<u8> {
     }
 }
 
-pub fn scenario_func_test_data_types_fixed_size(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
+fn bytearray_to_scanmem_input(bytearray: &[u8]) -> String {
+    let mut ret = String::new();
 
-    // How many threads to use.
-    const THREAD_COUNT_ARRAY: [u32; 6] = [
-        1, 2, 3, 11, 20, 32
-    ];
+    for v in bytearray {
+        ret.push_str(format!("{:02X} ", v).as_str());
+    }
 
-    // corresponds to fixture_index, (data_type, test_value0, test_value1)
-    const DATA_TYPE_ARRAY: [(&str, &str, &str); TEST_DATA_TYPES_FIXED_SIZE_FIXTURE_COUNT] = [
-        ("number", "-123123123", "0"),
-        ("int", "123123", "-123123123"),
-        ("float", "0.123123123", "123.123123"),
-        ("int8", "123", "1"),
-        ("int16", "12312", "-10"),
-        ("int32", "123123123", "1111"),
-        ("int64", "123123123123123", "-100000000000"),
-        ("float32", "-0.123123123123", "0.123123123123"),
-        ("float64", "0.123123123123123123", "1.123123123123123123"),
-    ];
-    let (data_type_string, data_type_test_value0, data_type_test_value1)  = DATA_TYPE_ARRAY[fixture_index];
+    ret
+}
 
-    const SYNTHETIC_LOAD_SIZE0: usize = 0x1_000_000usize;
-    const SYNTHETIC_LOAD_SIZE1: usize = SYNTHETIC_LOAD_SIZE0 / 2;
+fn scanmem_bytearray_to_bytes(input: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
+    input
+        .split_whitespace()
+        .map(|chunk| {
+            if chunk == "??" {
+                Ok(0u8)
+            } else {
+                u8::from_str_radix(chunk, 16)
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug)]
+struct TestData {
+    scan_data_type: String,
+
+    scan_predicate: String,
     
+    /// load size and test value per iteration (synthetic load size, test value)
+    test_values: Vec<(usize, String)>,
+    
+    thread_configs: Vec<u32>,
+}
+
+fn test_data_types(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, test_data: &TestData, verbose: bool) -> TestResult {
+    
+    println!("{:?}", test_data);
+
     // Create synthetic_load child process and init.
     let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
     let synthetic_load_process_pid = synthetic_load_process.get_pid();
 
-    // Init synthetic_load, fill with test_value_0.
-    synthetic_load_process.command_set_memory_size(SYNTHETIC_LOAD_SIZE0).unwrap();
-    synthetic_load_process.command_fill_bytearray(data_type_to_bytearray(data_type_string, data_type_test_value0).as_slice()).unwrap();
-    
-    // To make sure the memory of the target process is the same between scans, manually stop the target process before we attach scanmem processes.
-    synthetic_load_process.send_sigstop().unwrap();
-
-    // Run test
-
     // Create reference scanmem child processe, we only need one since we assume it is correct.
     let mut reference_scanmem = scanmem_driver::ScanmemDriver::create(reference_scanmem_program, synthetic_load_process_pid, 0, verbose).unwrap();
 
-    // Create test scanmem processes
+    // Create test scanmem processes.
     let mut test_scanmem_list = vec![];
-    for i in 0..THREAD_COUNT_ARRAY.len() {
-        let test_scanmem = scanmem_driver::ScanmemDriver::create(test_scanmem_program, synthetic_load_process_pid, THREAD_COUNT_ARRAY[i], verbose).unwrap();
+    for nthreads in &test_data.thread_configs {
+        let test_scanmem = scanmem_driver::ScanmemDriver::create(test_scanmem_program, synthetic_load_process_pid, *nthreads, verbose).unwrap();
         test_scanmem_list.push(test_scanmem);
     }
+
+    // Set scan type.
+    let configure_command = format!("option scan_data_type {}", test_data.scan_data_type);
+    reference_scanmem.write_line_stdin(&configure_command.as_str()).unwrap();
+    for test_scanmem in &mut test_scanmem_list {
+        test_scanmem.write_line_stdin(&configure_command.as_str()).unwrap();
+    }
+
+    // Run test.
+
     let mut test_result = TestResult::Pass;
 
-    // set scan type
-    let configure_command = format!("option scan_data_type {}", data_type_string);
-    reference_scanmem.write_line_stdin(configure_command.as_str()).unwrap();
-    for test_scanmem in &mut test_scanmem_list {
-        test_scanmem.write_line_stdin(configure_command.as_str()).unwrap();
-    }
+    let mut is_first_scan = true;
 
-    {
-        // Perform initial search regions.
-        let scan_command = format!("= {}", data_type_test_value0);
+    for (synthetic_load_size, test_value) in &test_data.test_values {
+        
+        // Init synthetic_load.
+        synthetic_load_process.command_set_memory_size(*synthetic_load_size).unwrap();
+        synthetic_load_process.command_fill_bytearray(data_type_to_bytearray(&test_data.scan_data_type, &test_value).as_slice()).unwrap();
+        
+        // To make sure the memory of the target process is the same between scans, manually stop the target process before we attach scanmem processes.
+        synthetic_load_process.send_sigstop().unwrap();
+
+        // If this is the first scan, we need to make sure all regions is known by scanmem, a reset will reload the memory regions.
+        if is_first_scan {
+            let reset_command = format!("reset");
+            reference_scanmem.write_line_stdin(&reset_command.as_str()).unwrap();
+            for test_scanmem in &mut test_scanmem_list {
+                test_scanmem.write_line_stdin(&reset_command.as_str()).unwrap();
+            }
+            is_first_scan = false;
+        }
+
+        // Scan.
+        let scan_command = format!("{} {}", test_data.scan_predicate, test_value);
         reference_scanmem.write_line_stdin(scan_command.as_str()).unwrap();
         let reference_match_data: MatchData = reference_scanmem.read_match_data();
 
-        for i in 0..THREAD_COUNT_ARRAY.len() {
+        for i in 0..test_data.thread_configs.len() {
             let test_scanmem = &mut test_scanmem_list[i];
             test_scanmem.write_line_stdin(scan_command.as_str()).unwrap();
             let test_match_data: MatchData = test_scanmem.read_match_data();
             // Validate.
-            expect_eq_r!(test_result, reference_match_data.error, false, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
-            expect_eq_r!(test_result, test_match_data.error, false, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
-            expect_eq_r!(test_result, reference_match_data.match_count, test_match_data.match_count, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
+            expect_eq_r!(test_result, reference_match_data.error, false, format!("nthreads {} failed", test_data.thread_configs[i]));
+            expect_eq_r!(test_result, test_match_data.error, false, format!("nthreads {} failed", test_data.thread_configs[i]));
+            expect_eq_r!(test_result, reference_match_data.match_count, test_match_data.match_count, format!("nthreads {} failed", test_data.thread_configs[i]));
         }
-    }
 
-    // Modify synthetic load to test_value_1.
-    synthetic_load_process.send_sigcont().unwrap();
-    synthetic_load_process.command_set_memory_size(SYNTHETIC_LOAD_SIZE1).unwrap();
-    synthetic_load_process.command_fill_bytearray(data_type_to_bytearray(data_type_string, data_type_test_value1).as_slice()).unwrap();
-    synthetic_load_process.send_sigstop().unwrap();
-
-    {
-        // Perform initial search regions.
-        let scan_command = format!("= {}", data_type_test_value1);
-        reference_scanmem.write_line_stdin(scan_command.as_str()).unwrap();
-        let reference_match_data: MatchData = reference_scanmem.read_match_data();
-
-        for i in 0..THREAD_COUNT_ARRAY.len() {
-            let test_scanmem = &mut test_scanmem_list[i];
-            test_scanmem.write_line_stdin(scan_command.as_str()).unwrap();
-            let test_match_data: MatchData = test_scanmem.read_match_data();
-            // Validate.
-            expect_eq_r!(test_result, reference_match_data.error, false, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
-            expect_eq_r!(test_result, test_match_data.error, false, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
-            expect_eq_r!(test_result, reference_match_data.match_count, test_match_data.match_count, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
-        }
+        // Resume synthetic_load
+        synthetic_load_process.send_sigcont().unwrap();    
     }
 
     // Cleanup.
@@ -165,8 +178,6 @@ pub fn scenario_func_test_data_types_fixed_size(reference_scanmem_program: &str,
         }
     }
 
-    // Resume target process such that it can close gracefully.
-    synthetic_load_process.send_sigcont().unwrap();
     // Exit synthetic_load.
     synthetic_load_process.command_exit().unwrap();
 
@@ -177,4 +188,104 @@ pub fn scenario_func_test_data_types_fixed_size(reference_scanmem_program: &str,
     }
 
     test_result
+}
+
+pub const TEST_DATA_TYPES_FIXED_SIZE_FIXTURE_COUNT: usize = 9;
+
+pub fn scenario_func_test_data_types_fixed_size(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
+    // How many threads to use.
+    const THREAD_COUNT_ARRAY: [u32; 6] = [
+        1, 2, 3, 11, 20, 32
+    ];
+
+    const SYNTHETIC_LOAD_SIZE0: usize = 0x1_000_000usize;
+    const SYNTHETIC_LOAD_SIZE1: usize = SYNTHETIC_LOAD_SIZE0 / 2;
+
+    let test_fixtures: [TestData; TEST_DATA_TYPES_FIXED_SIZE_FIXTURE_COUNT] = [
+        TestData {
+            scan_data_type: "number".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "-123123123".into()),(SYNTHETIC_LOAD_SIZE1, "0".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "int".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "123123".into()),(SYNTHETIC_LOAD_SIZE1, "-123123123".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "float".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "0.123123123".into()),(SYNTHETIC_LOAD_SIZE1, "123.123123".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "int8".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "123".into()),(SYNTHETIC_LOAD_SIZE1, "1".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "int16".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "12312".into()),(SYNTHETIC_LOAD_SIZE1, "-10".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "int32".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "123123123".into()),(SYNTHETIC_LOAD_SIZE1, "1111".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "int64".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "123123123123123".into()),(SYNTHETIC_LOAD_SIZE1, "-100000000000".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "float32".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "-0.123123123123".into()),(SYNTHETIC_LOAD_SIZE1, "0.123123123123".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "float64".into(),
+            scan_predicate: "=".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "0.123123123123123123".into()),(SYNTHETIC_LOAD_SIZE1, "1.123123123123123123".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+    ];
+
+    test_data_types(reference_scanmem_program, test_scanmem_program, synthetic_load_program, &test_fixtures[fixture_index], verbose)
+}
+
+pub const TEST_DATA_TYPES_STRING_FIXTURE_COUNT: usize = 2;
+
+pub fn scenario_func_test_data_types_string(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
+    // How many threads to use.
+    const THREAD_COUNT_ARRAY: [u32; 6] = [
+        1, 2, 3, 11, 20, 32
+    ];
+
+    const SYNTHETIC_LOAD_SIZE0: usize = 0x1_000_000usize;
+    const SYNTHETIC_LOAD_SIZE1: usize = SYNTHETIC_LOAD_SIZE0 / 2;
+
+    let test_fixtures: [TestData; TEST_DATA_TYPES_STRING_FIXTURE_COUNT] = [
+        TestData {
+            scan_data_type: "string".into(),
+            scan_predicate: "\"".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "This is a short string".into()),(SYNTHETIC_LOAD_SIZE1, "This string is longer than the first string".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "string".into(),
+            scan_predicate: "\"".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz".into()),(SYNTHETIC_LOAD_SIZE1, "one".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+    ];
+
+    test_data_types(reference_scanmem_program, test_scanmem_program, synthetic_load_program, &test_fixtures[fixture_index], verbose)
 }

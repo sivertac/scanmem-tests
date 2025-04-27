@@ -28,7 +28,7 @@ fn test_snapshot_scanmem_part(scanmem_program: &str, target_pid: u32, nthreads: 
     }
 }
 
-pub fn scenario_func_test_snapshot(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
+pub fn scenario_func_test_snapshot(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, _fixture_index: usize, verbose: bool) -> TestResult {
 
     // How many threads to use.
     const THREAD_COUNT_ARRAY: [u32; 6] = [
