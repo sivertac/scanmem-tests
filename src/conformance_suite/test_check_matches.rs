@@ -61,7 +61,7 @@ pub fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_sc
             expect_eq_r!(test_result, test_match_data.error, false, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
             expect_ge_r!(test_result, reference_match_data.match_count, synthetic_load_size as u64, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
             expect_ge_r!(test_result, test_match_data.match_count, synthetic_load_size as u64, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
-            expect_eq_r!(test_result, reference_match_data.match_count, test_match_data.match_count, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
+            expect_eq_r!(test_result, test_match_data.match_count, reference_match_data.match_count, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
         }
     }
 
@@ -85,7 +85,7 @@ pub fn scenario_func_test_check_matches(reference_scanmem_program: &str, test_sc
             expect_eq_r!(test_result, test_match_data.error, false, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
             expect_ge_r!(test_result, reference_match_data.match_count, synthetic_load_size as u64, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
             expect_ge_r!(test_result, test_match_data.match_count, synthetic_load_size as u64, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
-            expect_eq_r!(test_result, reference_match_data.match_count, test_match_data.match_count, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
+            expect_eq_r!(test_result, test_match_data.match_count, reference_match_data.match_count, format!("nthreads {} failed", THREAD_COUNT_ARRAY[i]));
         }
     }
 

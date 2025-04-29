@@ -153,7 +153,7 @@ fn test_data_types(reference_scanmem_program: &str, test_scanmem_program: &str, 
             // Validate.
             expect_eq_r!(test_result, reference_match_data.error, false, format!("nthreads {} failed", test_data.thread_configs[i]));
             expect_eq_r!(test_result, test_match_data.error, false, format!("nthreads {} failed", test_data.thread_configs[i]));
-            expect_eq_r!(test_result, reference_match_data.match_count, test_match_data.match_count, format!("nthreads {} failed", test_data.thread_configs[i]));
+            expect_eq_r!(test_result, test_match_data.match_count, reference_match_data.match_count, format!("nthreads {} failed", test_data.thread_configs[i]));
         }
 
         // Resume synthetic_load
