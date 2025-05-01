@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -47,15 +48,42 @@ fn create_test_id_string(test_name: &str, fixture_index: usize) -> String {
     format!("{}.{}", test_name, fixture_index)
 }
 
+fn parse_test_id_string(test_id_string: &str) -> (Option<String>, Option<usize>) {
+    if test_id_string.is_empty() {
+        return (None, None);
+    }
+
+    let parts: Vec<&str> = test_id_string.rsplitn(2, '.').collect();
+
+    match parts.as_slice() {
+        [index_str, name] => {
+            if let Ok(index) = index_str.parse::<usize>() {
+                Some(name.to_string()).map_or((None, None), |n| (Some(n), Some(index)))
+            } else {
+                (None, None)
+            }
+        }
+        [name] => (Some(name.to_string()), None),
+        _ => (None, None),
+    }
+}
+
 fn main() -> ExitCode {
 
     let cli = Cli::parse();
 
-    let mut test_list = conformance_suite::get_test_list();
+    let test_list = conformance_suite::get_test_list();
 
     // Filter tests if necessary
-    if let Some(selected_test_name) = cli.test.as_ref() {
-        test_list.retain(|t|t.name == *selected_test_name);
+    let mut selected_test_name= None;
+    let mut selected_test_fixture = None;
+
+    if let Some(test) = cli.test.as_ref() {
+        (selected_test_name, selected_test_fixture) = parse_test_id_string(test);
+        if selected_test_name.is_none() && selected_test_fixture.is_none() {
+            println!("Invalid test string: \"{test}\".");
+            return ExitCode::FAILURE;
+        }
     }
 
     if cli.list_tests {
@@ -71,10 +99,21 @@ fn main() -> ExitCode {
     let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(SYNTHETIC_LOAD_NAME);
     
     // Run tests.
-    let mut test_result_list = vec![];
+    let mut test_result_map = HashMap::<(&str, usize), TestResult>::new();
     for test in &test_list {
-        let mut test_fixture_results = vec![];
+        if let Some(e) = &selected_test_name {
+            if *e != test.name {
+                continue;
+            }
+        }
+        
         for fixture_index in 0..test.fixture_count {
+            if let Some(e) = &selected_test_fixture {
+                if *e != fixture_index {
+                    continue;
+                }
+            }
+
             let test_id_string = create_test_id_string(&test.name, fixture_index);
 
             // Execute test
@@ -82,28 +121,35 @@ fn main() -> ExitCode {
                 println!("Starting test: {}", test_id_string);
             }
             let fixture_result = (test.perform_test_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, fixture_index, cli.verbose);
-            test_fixture_results.push(fixture_result);
+            test_result_map.insert((&test.name, fixture_index), fixture_result);
             if cli.verbose {
                 println!("Ending test: {}", test_id_string);
             }
         }
-        test_result_list.push(test_fixture_results);
     }
 
-    let test_count = test_result_list.iter().flatten().count();
-    let pass_count = test_result_list.iter().flatten().filter(|e|**e == TestResult::Pass).count();
-    let fail_count = test_result_list.iter().flatten().filter(|e|**e == TestResult::Fail).count();
+    let test_count = test_result_map.len();
+    let pass_count = test_result_map.iter().filter(|e|*e.1 == TestResult::Pass).count();
+    let fail_count = test_result_map.iter().filter(|e|*e.1 == TestResult::Fail).count();
 
     // Print results.
     println!("==================================");
     println!("Test results");
     println!("==================================");
-    for test_index in 0..test_list.len() {
-        let test_fixture_results = &test_result_list[test_index];
-        let test_name = &test_list[test_index].name;
-        let fixture_count = test_list[test_index].fixture_count;
-        for fixture_index in 0..fixture_count {
-            println!("{}: {}", utils::test_result_to_string(&test_fixture_results[fixture_index]), create_test_id_string(test_name, fixture_index));
+    for test in &test_list {
+        if let Some(e) = &selected_test_name {
+            if *e != test.name {
+                continue;
+            }
+        }
+        for fixture_index in 0..test.fixture_count {
+            if let Some(e) = &selected_test_fixture {
+                if *e != fixture_index {
+                    continue;
+                }
+            }
+
+            println!("{}: {}", utils::test_result_to_string(&test_result_map[&(test.name.as_str(), fixture_index)]), create_test_id_string(test.name.as_str(), fixture_index));
         }
     }
     println!("==================================");

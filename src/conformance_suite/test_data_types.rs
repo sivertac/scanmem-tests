@@ -5,7 +5,7 @@ use crate::framework::scanmem_driver::MatchData;
 use crate::framework::scanmem_driver;
 use crate::*;
 
-fn data_type_to_bytearray(data_type: &str, value: &str) -> Vec<u8> {
+fn scanmem_data_type_to_bytes(data_type: &str, value: &str) -> Vec<u8> {
     match data_type {
         "number" => {
             let v: i64 = value.parse().unwrap(); 
@@ -111,9 +111,9 @@ fn test_data_types(reference_scanmem_program: &str, test_scanmem_program: &str, 
 
     // Set scan type.
     let configure_command = format!("option scan_data_type {}", test_data.scan_data_type);
-    reference_scanmem.write_line_stdin(&configure_command.as_str()).unwrap();
+    reference_scanmem.write_line_stdin(configure_command.as_str()).unwrap();
     for test_scanmem in &mut test_scanmem_list {
-        test_scanmem.write_line_stdin(&configure_command.as_str()).unwrap();
+        test_scanmem.write_line_stdin(configure_command.as_str()).unwrap();
     }
 
     // Run test.
@@ -126,17 +126,17 @@ fn test_data_types(reference_scanmem_program: &str, test_scanmem_program: &str, 
         
         // Init synthetic_load.
         synthetic_load_process.command_set_memory_size(*synthetic_load_size).unwrap();
-        synthetic_load_process.command_fill_bytearray(data_type_to_bytearray(&test_data.scan_data_type, &test_value).as_slice()).unwrap();
+        synthetic_load_process.command_fill_bytearray(scanmem_data_type_to_bytes(&test_data.scan_data_type, test_value).as_slice()).unwrap();
         
         // To make sure the memory of the target process is the same between scans, manually stop the target process before we attach scanmem processes.
         synthetic_load_process.send_sigstop().unwrap();
 
         // If this is the first scan, we need to make sure all regions is known by scanmem, a reset will reload the memory regions.
         if is_first_scan {
-            let reset_command = format!("reset");
-            reference_scanmem.write_line_stdin(&reset_command.as_str()).unwrap();
+            let reset_command = "reset".to_string();
+            reference_scanmem.write_line_stdin(reset_command.as_str()).unwrap();
             for test_scanmem in &mut test_scanmem_list {
-                test_scanmem.write_line_stdin(&reset_command.as_str()).unwrap();
+                test_scanmem.write_line_stdin(reset_command.as_str()).unwrap();
             }
             is_first_scan = false;
         }
@@ -283,6 +283,47 @@ pub fn scenario_func_test_data_types_string(reference_scanmem_program: &str, tes
             scan_data_type: "string".into(),
             scan_predicate: "\"".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz".into()),(SYNTHETIC_LOAD_SIZE1, "one".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+    ];
+
+    test_data_types(reference_scanmem_program, test_scanmem_program, synthetic_load_program, &test_fixtures[fixture_index], verbose)
+}
+
+pub const TEST_DATA_TYPES_BYTEARRAY_FIXTURE_COUNT: usize = 4;
+
+pub fn scenario_func_test_data_types_bytearray(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, _synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
+    // How many threads to use.
+    const THREAD_COUNT_ARRAY: [u32; 6] = [
+        1, 2, 3, 11, 20, 32
+    ];
+
+    const SYNTHETIC_LOAD_SIZE0: usize = 0x1_000_000usize;
+    const SYNTHETIC_LOAD_SIZE1: usize = SYNTHETIC_LOAD_SIZE0 / 2;
+
+    let test_fixtures: [TestData; TEST_DATA_TYPES_BYTEARRAY_FIXTURE_COUNT] = [
+        TestData {
+            scan_data_type: "bytearray".into(),
+            scan_predicate: "".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "01 02 03 04 05 06".into()),(SYNTHETIC_LOAD_SIZE1, "01 02 03 04 05 06".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "bytearray".into(),
+            scan_predicate: "".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "??".into()),(SYNTHETIC_LOAD_SIZE1, "??".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "bytearray".into(),
+            scan_predicate: "".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "FF ?? EE ?? 02 01".into()),(SYNTHETIC_LOAD_SIZE1, "??".into())],
+            thread_configs: THREAD_COUNT_ARRAY.to_vec()
+        },
+        TestData {
+            scan_data_type: "bytearray".into(),
+            scan_predicate: "".into(),
+            test_values: vec![(SYNTHETIC_LOAD_SIZE0, "FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF".into()),(SYNTHETIC_LOAD_SIZE1, "FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
     ];
