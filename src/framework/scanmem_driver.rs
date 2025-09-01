@@ -220,3 +220,77 @@ impl ScanmemDriver {
         return internal_write_line(self.child_process.stdin.as_mut().unwrap(), line, pid, self.verbose, "stdin");
     }
 }
+
+pub fn scanmem_data_type_to_bytes(data_type: &str, value: &str) -> Vec<u8> {
+    match data_type {
+        "number" => {
+            let v: i64 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "int" => {
+            let v: i32 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "float" => {
+            let v: f64 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "int8" => {
+            let v: i8 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "int16" => {
+            let v: i16 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "int32" => {
+            let v: i32 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "int64" => {
+            let v: i64 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "float32" => {
+            let v: f32 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "float64" => {
+            let v: f64 = value.parse().unwrap(); 
+            v.to_le_bytes().to_vec()
+        },
+        "bytearray" => {
+            scanmem_bytearray_to_bytes(value).unwrap()
+        },
+        "string" => { 
+            value.as_bytes().to_vec()
+        },
+        _ => {
+            assert!(false);
+            vec![]
+        }
+    }
+}
+
+pub fn bytearray_to_scanmem_input(bytearray: &[u8]) -> String {
+    let mut ret = String::new();
+
+    for v in bytearray {
+        ret.push_str(format!("{:02X} ", v).as_str());
+    }
+
+    ret
+}
+
+pub fn scanmem_bytearray_to_bytes(input: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
+    input
+        .split_whitespace()
+        .map(|chunk| {
+            if chunk == "??" {
+                Ok(0u8)
+            } else {
+                u8::from_str_radix(chunk, 16)
+            }
+        })
+        .collect()
+}

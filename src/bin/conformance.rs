@@ -120,7 +120,7 @@ fn main() -> ExitCode {
             if cli.verbose {
                 println!("Starting test: {}", test_id_string);
             }
-            let fixture_result = (test.perform_test_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), 0, fixture_index, cli.verbose);
+            let fixture_result = (test.perform_test_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), cli.synthetic_load_random_seed, fixture_index, cli.verbose);
             test_result_map.insert((&test.name, fixture_index), fixture_result);
             if cli.verbose {
                 println!("Ending test: {}", test_id_string);

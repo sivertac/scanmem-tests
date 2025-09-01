@@ -5,6 +5,7 @@ mod test_search_regions;
 mod test_check_matches;
 mod test_snapshot;
 mod test_data_types;
+mod test_operators;
 
 pub type TestScenarioFunc = fn(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult;
 
@@ -53,6 +54,12 @@ pub fn get_test_list() -> Vec<TestScenario> {
             description: "Test bytearray data type.".into(),
             perform_test_scenario_func: test_data_types::scenario_func_test_data_types_bytearray,
             fixture_count: test_data_types::TEST_DATA_TYPES_BYTEARRAY_FIXTURE_COUNT,
+        },
+        TestScenario{
+            name: "Operators".into(),
+            description: "Test scan operators.".into(),
+            perform_test_scenario_func: test_operators::scenario_func_test_operators,
+            fixture_count: test_operators::scenario_func_test_operators_get_fixture_count(),
         },
     ]
 }

@@ -1,89 +1,15 @@
 
 use crate::framework::utils::TestResult;
 use crate::framework::synthetic_load_driver;
-use crate::framework::scanmem_driver::MatchData;
+use crate::framework::scanmem_driver::{MatchData, scanmem_data_type_to_bytes};
 use crate::framework::scanmem_driver;
 use crate::*;
-
-fn scanmem_data_type_to_bytes(data_type: &str, value: &str) -> Vec<u8> {
-    match data_type {
-        "number" => {
-            let v: i64 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "int" => {
-            let v: i32 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "float" => {
-            let v: f64 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "int8" => {
-            let v: i8 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "int16" => {
-            let v: i16 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "int32" => {
-            let v: i32 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "int64" => {
-            let v: i64 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "float32" => {
-            let v: f32 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "float64" => {
-            let v: f64 = value.parse().unwrap(); 
-            v.to_le_bytes().to_vec()
-        },
-        "bytearray" => {
-            scanmem_bytearray_to_bytes(value).unwrap()
-        },
-        "string" => { 
-            value.as_bytes().to_vec()
-        },
-        _ => {
-            assert!(false);
-            vec![]
-        }
-    }
-}
-
-fn bytearray_to_scanmem_input(bytearray: &[u8]) -> String {
-    let mut ret = String::new();
-
-    for v in bytearray {
-        ret.push_str(format!("{:02X} ", v).as_str());
-    }
-
-    ret
-}
-
-fn scanmem_bytearray_to_bytes(input: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
-    input
-        .split_whitespace()
-        .map(|chunk| {
-            if chunk == "??" {
-                Ok(0u8)
-            } else {
-                u8::from_str_radix(chunk, 16)
-            }
-        })
-        .collect()
-}
 
 #[derive(Debug)]
 struct TestData {
     scan_data_type: String,
 
-    scan_predicate: String,
+    scan_command: String,
     
     /// load size and test value per iteration (synthetic load size, test value)
     test_values: Vec<(usize, String)>,
@@ -93,7 +19,9 @@ struct TestData {
 
 fn test_data_types(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, test_data: &TestData, verbose: bool) -> TestResult {
     
-    println!("{:?}", test_data);
+    if verbose {
+        println!("{:?}", test_data);
+    }
 
     // Create synthetic_load child process and init.
     let mut synthetic_load_process = synthetic_load_driver::SyntheticLoadDriver::create(synthetic_load_program, verbose).unwrap();
@@ -142,7 +70,7 @@ fn test_data_types(reference_scanmem_program: &str, test_scanmem_program: &str, 
         }
 
         // Scan.
-        let scan_command = format!("{} {}", test_data.scan_predicate, test_value);
+        let scan_command = format!("{} {}", test_data.scan_command, test_value);
         reference_scanmem.write_line_stdin(scan_command.as_str()).unwrap();
         let reference_match_data: MatchData = reference_scanmem.read_match_data();
 
@@ -204,55 +132,55 @@ pub fn scenario_func_test_data_types_fixed_size(reference_scanmem_program: &str,
     let test_fixtures: [TestData; TEST_DATA_TYPES_FIXED_SIZE_FIXTURE_COUNT] = [
         TestData {
             scan_data_type: "number".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "-123123123".into()),(SYNTHETIC_LOAD_SIZE1, "0".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "int".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "123123".into()),(SYNTHETIC_LOAD_SIZE1, "-123123123".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "float".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "0.123123123".into()),(SYNTHETIC_LOAD_SIZE1, "123.123123".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "int8".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "123".into()),(SYNTHETIC_LOAD_SIZE1, "1".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "int16".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "12312".into()),(SYNTHETIC_LOAD_SIZE1, "-10".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "int32".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "123123123".into()),(SYNTHETIC_LOAD_SIZE1, "1111".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "int64".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "123123123123123".into()),(SYNTHETIC_LOAD_SIZE1, "-100000000000".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "float32".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "-0.123123123123".into()),(SYNTHETIC_LOAD_SIZE1, "0.123123123123".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "float64".into(),
-            scan_predicate: "=".into(),
+            scan_command: "=".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "0.123123123123123123".into()),(SYNTHETIC_LOAD_SIZE1, "1.123123123123123123".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
@@ -275,13 +203,13 @@ pub fn scenario_func_test_data_types_string(reference_scanmem_program: &str, tes
     let test_fixtures: [TestData; TEST_DATA_TYPES_STRING_FIXTURE_COUNT] = [
         TestData {
             scan_data_type: "string".into(),
-            scan_predicate: "\"".into(),
+            scan_command: "\"".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "This is a short string".into()),(SYNTHETIC_LOAD_SIZE1, "This string is longer than the first string".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "string".into(),
-            scan_predicate: "\"".into(),
+            scan_command: "\"".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz".into()),(SYNTHETIC_LOAD_SIZE1, "one".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
@@ -304,25 +232,25 @@ pub fn scenario_func_test_data_types_bytearray(reference_scanmem_program: &str, 
     let test_fixtures: [TestData; TEST_DATA_TYPES_BYTEARRAY_FIXTURE_COUNT] = [
         TestData {
             scan_data_type: "bytearray".into(),
-            scan_predicate: "".into(),
+            scan_command: "".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "01 02 03 04 05 06".into()),(SYNTHETIC_LOAD_SIZE1, "01 02 03 04 05 06".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "bytearray".into(),
-            scan_predicate: "".into(),
+            scan_command: "".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "??".into()),(SYNTHETIC_LOAD_SIZE1, "??".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "bytearray".into(),
-            scan_predicate: "".into(),
+            scan_command: "".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "FF ?? EE ?? 02 01".into()),(SYNTHETIC_LOAD_SIZE1, "??".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
         TestData {
             scan_data_type: "bytearray".into(),
-            scan_predicate: "".into(),
+            scan_command: "".into(),
             test_values: vec![(SYNTHETIC_LOAD_SIZE0, "FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF".into()),(SYNTHETIC_LOAD_SIZE1, "FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF".into())],
             thread_configs: THREAD_COUNT_ARRAY.to_vec()
         },
