@@ -152,13 +152,9 @@ fn test_operators_get_fixtures() -> Vec<TestData> {
     const THREAD_COUNT_ARRAY: [u32; 6] = [
         1, 2, 3, 11, 20, 32
     ];
+
     const TEST_ITERATIONS: usize = 2;
 
-    //const THREAD_COUNT_ARRAY: [u32; 2] = [
-    //    1, 2,// 4, 5, 6, 7, 8,
-    //];
-
-    //const SYNTHETIC_LOAD_SIZE0: usize = 0x3_310_102usize;
     const SYNTHETIC_LOAD_SIZE0: usize = 0x1_000_000usize;
 
     const DATA_TYPES: [&str; 9] = [
@@ -196,8 +192,6 @@ fn test_operators_get_fixtures() -> Vec<TestData> {
 pub fn scenario_func_test_operators_get_fixture_count() -> usize {
     test_operators_get_fixtures().len()
 }
-
-pub const TEST_OPERATORS_FIXTURE_COUNT: usize = 1;
 
 pub fn scenario_func_test_operators(reference_scanmem_program: &str, test_scanmem_program: &str, synthetic_load_program: &str, synthetic_load_random_seed: u64, fixture_index: usize, verbose: bool) -> TestResult {
 
