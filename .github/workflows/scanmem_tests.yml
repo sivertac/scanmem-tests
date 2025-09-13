@@ -45,15 +45,21 @@ jobs:
     - name: Build test scanmem
       run: pushd $TEST_SCANMEM_DIR && make -j $(nproc) && popd
 
-    - name: LS
-      run: ls
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: scanmem-tests-build-artifact
+        path: .
 
   run_conformance_suite:
     runs-on: ubuntu-24.04
     needs: [build_scanmem_tests]
     steps:
-    - uses: actions/checkout@v4
-    - name: Test
+    - name: Download build artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: scanmem-tests-build-artifact
+    - name: LS
       run: ls
   
   
