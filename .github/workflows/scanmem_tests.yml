@@ -46,7 +46,7 @@ jobs:
       run: pushd $TEST_SCANMEM_DIR && make -j $(nproc) && popd
 
     - name: Create artifact archive
-      run: tar -czvf scanmem-tests-build-artifact.tar.gz target @REFERENCE_SCANMEM_DIR @TEST_SCANMEM_DIR
+      run: tar -czvf scanmem-tests-build-artifact.tar.gz target $REFERENCE_SCANMEM_DIR $TEST_SCANMEM_DIR
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
