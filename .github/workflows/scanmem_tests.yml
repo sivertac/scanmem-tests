@@ -29,7 +29,7 @@ jobs:
     
     - uses: actions/checkout@v4
     - name: Build scanmem-tests
-      run: cargo build --verbose
+      run: cargo build --release --verbose
     
     - name: Checkout reference scanmem
       run: mkdir $REFERENCE_SCANMEM_DIR && pushd $REFERENCE_SCANMEM_DIR && git init && git remote add origin $REFERENCE_SCANMEM_REPO && git fetch --depth 1 origin $REFERENCE_SCANMEM_COMMIT && git checkout FETCH_HEAD && popd
@@ -46,7 +46,7 @@ jobs:
       run: pushd $TEST_SCANMEM_DIR && make -j $(nproc) && popd
 
     - name: Create artifact archive
-      run: tar -czvf scanmem-tests-build-artifact.tar.gz target $REFERENCE_SCANMEM_DIR $TEST_SCANMEM_DIR
+      run: tar -czvf scanmem-tests-build-artifact.tar.gz --exclude=target/release/deps --exclude=target/release/build --exclude=target/release/examples --exclude=target/release/incremental --exclude=target/release/.fingerprint target/release $REFERENCE_SCANMEM_DIR $TEST_SCANMEM_DIR
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
@@ -63,12 +63,8 @@ jobs:
         name: scanmem-tests-build-artifact
     - name: Extract artifact archive
       run: tar -xzvf ./scanmem-tests-build-artifact.tar.gz
-    #- name: Change permissions
-    #  run: chmod 755 ./target/debug/conformance && chmod 755 ./target/debug/synthetic_load && chmod 755 ./target/debug/benchmark && chmod 755 $REFERENCE_SCANMEM_DIR/scanmem && chmod 755 $TEST_SCANMEM_DIR/scanmem
-    - name: LS
-      run: sudo ls -lh ./target/debug
     - name: Test
-      run: sudo ./target/debug/conformance --reference-scanmem-program $REFERENCE_SCANMEM_DIR/scanmem --test-scanmem-program $TEST_SCANMEM_DIR/scanmem --test Operators.0 -v --ctrf-output report.ctrf.json
+      run: sudo ./target/release/conformance --reference-scanmem-program $REFERENCE_SCANMEM_DIR/scanmem --test-scanmem-program $TEST_SCANMEM_DIR/scanmem -v --ctrf-output report.ctrf.json
     - name: Publish test report
       uses: ctrf-io/github-test-reporter@v1
       with:
