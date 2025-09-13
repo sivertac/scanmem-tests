@@ -1,0 +1,47 @@
+name: scanmem_tests
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_scanmem_tests:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --verbose
+  build_reference_scanmem:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Checkout
+      run: git init && git remote add origin https://github.com/scanmem/scanmem.git && git fetch --depth 1 origin 0375cc02b132c1678fcbeabdfee4cd81d353358f && git checkout FETCH_HEAD
+    - name: Configure
+      run: ./configure
+    - name: Build
+      run: make -j $(nproc)
+  build_test_scanmem:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Checkout
+      run: git init && git remote add origin https://github.com/sivertac/scanmem.git && git fetch --depth 1 origin 285899d82cf10d36f179eb8ed16e4f4cb69cfc5b && git checkout FETCH_HEAD
+    - name: Configure
+      run: ./configure
+    - name: Build
+      run: make -j $(nproc)
+  run_conformance_suite:
+    runs-on: ubuntu-24.04
+    needs: [build_scanmem_tests, build_reference_scanmem, build_test_scanmem]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Test
+      run: ls
+  
+  
