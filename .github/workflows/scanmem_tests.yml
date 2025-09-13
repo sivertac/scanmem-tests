@@ -34,20 +34,16 @@ jobs:
     - name: Checkout reference scanmem
       run: mkdir $REFERENCE_SCANMEM_DIR && pushd $REFERENCE_SCANMEM_DIR && git init && git remote add origin $REFERENCE_SCANMEM_REPO && git fetch --depth 1 origin $REFERENCE_SCANMEM_COMMIT && git checkout FETCH_HEAD && popd
     - name: Configure reference scanmem
-      run: ./autogen.sh && ./configure
-      working-directory: $REFERENCE_SCANMEM_DIR
+      run: pushd $REFERENCE_SCANMEM_DIR && ./autogen.sh && ./configure && popd
     - name: Build reference scanmem
-      run: make -j $(nproc)
-      working-directory: $REFERENCE_SCANMEM_DIR
+      run: pushd $REFERENCE_SCANMEM_DIR && make -j $(nproc) && popd
 
     - name: Checkout test scanmem
       run: mkdir $TEST_SCANMEM_DIR && pushd $TEST_SCANMEM_DIR && git init && git remote add origin $TEST_SCANMEM_REPO && git fetch --depth 1 origin $TEST_SCANMEM_COMMIT && git checkout FETCH_HEAD && popd
     - name: Configure test scanmem
-      run: ./autogen.sh && ./configure
-      working-directory: $TEST_SCANMEM_DIR
+      run: pushd $TEST_SCANMEM_DIR && ./autogen.sh && ./configure && popd
     - name: Build test scanmem
-      run: make -j $(nproc)
-      working-directory: $TEST_SCANMEM_DIR
+      run: pushd $TEST_SCANMEM_DIR && make -j $(nproc) && popd
 
     - name: LS
       run: ls
