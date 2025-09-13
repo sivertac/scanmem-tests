@@ -1,6 +1,6 @@
 use crate::framework::utils::TestResult;
 use crate::framework::synthetic_load_driver;
-use crate::framework::scanmem_driver::{MatchData, scanmem_data_type_to_bytes};
+use crate::framework::scanmem_driver::MatchData;
 use crate::framework::scanmem_driver;
 use crate::*;
 

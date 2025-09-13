@@ -1,7 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::ExitCode;
+use std::time::{Duration, SystemTime};
+use std::path;
 
 use clap::Parser;
+
+use serde_json::json;
 
 use scanmem_tests::framework::synthetic_load_driver::SYNTHETIC_LOAD_NAME;
 use scanmem_tests::framework::utils::TestResult;
@@ -35,9 +39,9 @@ struct Cli {
     #[arg(long)]
     test: Option<String>,
 
-    /// csv output
-    //#[arg[long]]
-    //csv_output: Option<path::PathBuf>,
+    /// CTRF output file.
+    #[arg(long)]
+    ctrf_output: Option<path::PathBuf>,
 
     /// Echo child process stdout and stderr in parent stdout and stderr.
     #[arg(short = 'v', long, default_value_t = false)]
@@ -67,6 +71,65 @@ fn parse_test_id_string(test_id_string: &str) -> (Option<String>, Option<usize>)
         _ => (None, None),
     }
 }
+
+struct TestResultData {
+    test_result: TestResult,
+    execution_time: Duration,
+}
+
+// Create CTRF (Common Test Report Format) report of test result https://www.ctrf.io/.
+fn create_CTRF_report(start_time: SystemTime, stop_time: SystemTime, test_count: usize, pass_count: usize, fail_count: usize, test_result_map: &HashMap::<(&str, usize), TestResultData>) -> serde_json::Value {
+
+    let mut output_tests = vec![];
+
+    for p in test_result_map {
+
+        output_tests.push(json!({
+            "name": create_test_id_string(p.0.0, p.0.1),
+            "suite": p.0.0,
+            "status": match p.1.test_result {
+                TestResult::Pass => "passed",
+                TestResult::Fail => "failed", 
+            },
+            "duration": p.1.execution_time.as_millis()
+        }));
+    }
+
+    // Count unique test names.
+    let suites = test_result_map.iter().map(|e| e.0.0 ).collect::<HashSet<_>>().len();
+
+    let output = json!({
+        "reportFormat": "CTRF",
+        "specVersion": "0.0.0",
+        "results": {
+            "tool": {
+                "name": "scanmem-tests",
+                "version": "0.0.0"
+            },
+            "summary": {
+                "tests": test_count,
+                "passed": pass_count,
+                "failed": fail_count,
+                "pending": 0,
+                "skipped": 0,
+                "other": 0,
+                "suites": suites,
+                "start": start_time,
+                "stop": stop_time
+            },
+            "tests": output_tests
+        }
+    });
+
+    return output
+}
+
+fn write_json_to_file(filename: &path::PathBuf, data: &serde_json::Value) {
+    let file = std::fs::File::create(filename).expect("Failed to create file");
+    let writer = std::io::BufWriter::new(file);
+    serde_json::to_writer_pretty(writer, data).expect("Failed to write JSON to file");
+}
+
 
 fn main() -> ExitCode {
 
@@ -99,7 +162,9 @@ fn main() -> ExitCode {
     let synthetic_load_path = std::env::current_exe().unwrap().parent().unwrap().to_path_buf().join(SYNTHETIC_LOAD_NAME);
     
     // Run tests.
-    let mut test_result_map = HashMap::<(&str, usize), TestResult>::new();
+    let start_time = SystemTime::now();
+
+    let mut test_result_map = HashMap::<(&str, usize), TestResultData>::new();
     for test in &test_list {
         if let Some(e) = &selected_test_name {
             if *e != test.name {
@@ -120,17 +185,20 @@ fn main() -> ExitCode {
             if cli.verbose {
                 println!("Starting test: {}", test_id_string);
             }
+            let test_start_time = SystemTime::now();
             let fixture_result = (test.perform_test_scenario_func)(&cli.reference_scanmem_program, &cli.test_scanmem_program, synthetic_load_path.to_str().unwrap(), cli.synthetic_load_random_seed, fixture_index, cli.verbose);
-            test_result_map.insert((&test.name, fixture_index), fixture_result);
+            let test_duration = SystemTime::now().duration_since(test_start_time).unwrap(); 
+            test_result_map.insert((&test.name, fixture_index), TestResultData { test_result: fixture_result, execution_time: test_duration });
             if cli.verbose {
                 println!("Ending test: {}", test_id_string);
             }
         }
     }
+    let stop_time = SystemTime::now();
 
     let test_count = test_result_map.len();
-    let pass_count = test_result_map.iter().filter(|e|*e.1 == TestResult::Pass).count();
-    let fail_count = test_result_map.iter().filter(|e|*e.1 == TestResult::Fail).count();
+    let pass_count = test_result_map.iter().filter(|e|e.1.test_result == TestResult::Pass).count();
+    let fail_count = test_result_map.iter().filter(|e|e.1.test_result == TestResult::Fail).count();
 
     // Print results.
     println!("==================================");
@@ -149,7 +217,7 @@ fn main() -> ExitCode {
                 }
             }
 
-            println!("{}: {}", utils::test_result_to_string(&test_result_map[&(test.name.as_str(), fixture_index)]), create_test_id_string(test.name.as_str(), fixture_index));
+            println!("{}: {}", utils::test_result_to_string(&test_result_map[&(test.name.as_str(), fixture_index)].test_result), create_test_id_string(test.name.as_str(), fixture_index));
         }
     }
     println!("==================================");
@@ -158,6 +226,10 @@ fn main() -> ExitCode {
     println!("Total number of tests....{}", test_count);
     println!("Pass count...............{}", pass_count);
     println!("Fail count...............{}", fail_count);
+
+    if let Some(ctrf_output_file) = cli.ctrf_output {
+        write_json_to_file(&ctrf_output_file, &create_CTRF_report(start_time, stop_time, test_count, pass_count, fail_count, &test_result_map));
+    }
 
     if fail_count > 0 {
         return ExitCode::FAILURE;
