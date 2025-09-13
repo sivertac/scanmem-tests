@@ -46,14 +46,12 @@ jobs:
       run: pushd $TEST_SCANMEM_DIR && make -j $(nproc) && popd
 
     - name: Create artifact archive
-      run: tar -czvf scanmem-tests-build-artifact.tar.gz $GITHUB_WORKSPACE
-      working-directory: /work/scanmem-tests
+      run: tar -czvf scanmem-tests-build-artifact.tar.gz target @REFERENCE_SCANMEM_DIR @TEST_SCANMEM_DIR
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
         name: scanmem-tests-build-artifact
         path: scanmem-tests-build-artifact.tar.gz
-        working-directory: /work/scanmem-tests
 
   run_conformance_suite:
     runs-on: ubuntu-24.04
@@ -64,7 +62,7 @@ jobs:
       with:
         name: scanmem-tests-build-artifact
     - name: Extract artifact archive
-      run: tar -xzvf ../scanmem-tests-build-artifact.tar.gz
+      run: tar -xzvf ./scanmem-tests-build-artifact.tar.gz
     #- name: Change permissions
     #  run: chmod 755 ./target/debug/conformance && chmod 755 ./target/debug/synthetic_load && chmod 755 ./target/debug/benchmark && chmod 755 $REFERENCE_SCANMEM_DIR/scanmem && chmod 755 $TEST_SCANMEM_DIR/scanmem
     - name: LS
