@@ -19,7 +19,6 @@ jobs:
   build_reference_scanmem:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
     - name: Checkout
       run: git init && git remote add origin https://github.com/scanmem/scanmem.git && git fetch --depth 1 origin 0375cc02b132c1678fcbeabdfee4cd81d353358f && git checkout FETCH_HEAD
     - name: Configure
@@ -29,7 +28,6 @@ jobs:
   build_test_scanmem:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
     - name: Checkout
       run: git init && git remote add origin https://github.com/sivertac/scanmem.git && git fetch --depth 1 origin 285899d82cf10d36f179eb8ed16e4f4cb69cfc5b && git checkout FETCH_HEAD
     - name: Configure
