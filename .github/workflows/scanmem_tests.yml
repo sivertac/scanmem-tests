@@ -60,7 +60,9 @@ jobs:
       with:
         name: scanmem-tests-build-artifact
     - name: Change permissions
-      run: chmod +x ./target/debug/conformance && chmod +x ./target/debug/synthetic_load && chmod +x ./target/debug/benchmark && chmod -x $REFERENCE_SCANMEM_DIR/scanmem && chmod +x $TEST_SCANMEM_DIR/scanmem
+      run: chmod 755 ./target/debug/conformance && chmod 755 ./target/debug/synthetic_load && chmod 755 ./target/debug/benchmark && chmod 755 $REFERENCE_SCANMEM_DIR/scanmem && chmod 755 $TEST_SCANMEM_DIR/scanmem
+    - name: LS
+      run: sudo ls -lh ./target/debug
     - name: Test
       run: sudo ./target/debug/conformance --reference-scanmem-program $REFERENCE_SCANMEM_DIR/scanmem --test-scanmem-program $TEST_SCANMEM_DIR/scanmem --test Operators.0 -v --ctrf-output report.ctrf.json
     - name: Publish test report
