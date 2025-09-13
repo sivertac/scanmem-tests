@@ -6,41 +6,55 @@ on:
   pull_request:
     branches: [ "master" ]
 
+defaults:
+  run:
+    shell: bash
+
 env:
   CARGO_TERM_COLOR: always
-
+  REFERENCE_SCANMEM_DIR: "reference_scanmem"
+  TEST_SCANMEM_DIR: "test_scanmem"
+  REFERENCE_SCANMEM_REPO: "https://github.com/scanmem/scanmem.git"
+  REFERENCE_SCANMEM_COMMIT: "0375cc02b132c1678fcbeabdfee4cd81d353358f"
+  TEST_SCANMEM_REPO: "https://github.com/sivertac/scanmem.git"
+  TEST_SCANMEM_COMMIT: "285899d82cf10d36f179eb8ed16e4f4cb69cfc5b"
+  
 jobs:
   build_scanmem_tests:
     runs-on: ubuntu-24.04
     steps:
+    
+    - name: Install scanmem dependencies
+      run: sudo apt-get install -y autotools-dev libtool libreadline-dev intltool
+    
     - uses: actions/checkout@v4
-    - name: Build
+    - name: Build scanmem-tests
       run: cargo build --verbose
-  build_reference_scanmem:
-    runs-on: ubuntu-24.04
-    steps:
-    - name: Install dependencies
-      run: sudo apt-get install -y autotools-dev libtool libreadline-dev intltool
-    - name: Checkout
-      run: git init && git remote add origin https://github.com/scanmem/scanmem.git && git fetch --depth 1 origin 0375cc02b132c1678fcbeabdfee4cd81d353358f && git checkout FETCH_HEAD
-    - name: Configure
+    
+    - name: Checkout reference scanmem
+      run: mkdir $REFERENCE_SCANMEM_DIR && pushd $REFERENCE_SCANMEM_DIR && git init && git remote add origin $REFERENCE_SCANMEM_REPO && git fetch --depth 1 origin $REFERENCE_SCANMEM_COMMIT && git checkout FETCH_HEAD && popd
+    - name: Configure reference scanmem
       run: ./autogen.sh && ./configure
-    - name: Build
+      working-directory: $REFERENCE_SCANMEM_DIR
+    - name: Build reference scanmem
       run: make -j $(nproc)
-  build_test_scanmem:
-    runs-on: ubuntu-24.04
-    steps:
-    - name: Install dependencies
-      run: sudo apt-get install -y autotools-dev libtool libreadline-dev intltool
-    - name: Checkout
-      run: git init && git remote add origin https://github.com/sivertac/scanmem.git && git fetch --depth 1 origin 285899d82cf10d36f179eb8ed16e4f4cb69cfc5b && git checkout FETCH_HEAD
-    - name: Configure
+      working-directory: $REFERENCE_SCANMEM_DIR
+
+    - name: Checkout test scanmem
+      run: mkdir $TEST_SCANMEM_DIR && pushd $TEST_SCANMEM_DIR && git init && git remote add origin $TEST_SCANMEM_REPO && git fetch --depth 1 origin $TEST_SCANMEM_COMMIT && git checkout FETCH_HEAD && popd
+    - name: Configure test scanmem
       run: ./autogen.sh && ./configure
-    - name: Build
+      working-directory: $TEST_SCANMEM_DIR
+    - name: Build test scanmem
       run: make -j $(nproc)
+      working-directory: $TEST_SCANMEM_DIR
+
+    - name: LS
+      run: ls
+
   run_conformance_suite:
     runs-on: ubuntu-24.04
-    needs: [build_scanmem_tests, build_reference_scanmem, build_test_scanmem]
+    needs: [build_scanmem_tests]
     steps:
     - uses: actions/checkout@v4
     - name: Test
