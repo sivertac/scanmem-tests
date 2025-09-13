@@ -1,0 +1,75 @@
+name: scanmem_tests
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  REFERENCE_SCANMEM_DIR: "reference_scanmem"
+  TEST_SCANMEM_DIR: "test_scanmem"
+  REFERENCE_SCANMEM_REPO: "https://github.com/scanmem/scanmem.git"
+  REFERENCE_SCANMEM_COMMIT: "4590cbb17ea3ebe5a8af807a7666082b6719a9cd"
+  TEST_SCANMEM_REPO: "https://github.com/sivertac/scanmem.git"
+  TEST_SCANMEM_COMMIT: "285899d82cf10d36f179eb8ed16e4f4cb69cfc5b"
+  
+jobs:
+  build_scanmem_tests:
+    runs-on: ubuntu-24.04
+    steps:
+    
+    - name: Install scanmem dependencies
+      run: sudo apt-get install -y autotools-dev libtool libreadline-dev intltool
+    
+    - uses: actions/checkout@v4
+    - name: Build scanmem-tests
+      run: cargo build --release --verbose
+    
+    - name: Checkout reference scanmem
+      run: mkdir $REFERENCE_SCANMEM_DIR && pushd $REFERENCE_SCANMEM_DIR && git init && git remote add origin $REFERENCE_SCANMEM_REPO && git fetch --depth 1 origin $REFERENCE_SCANMEM_COMMIT && git checkout FETCH_HEAD && popd
+    - name: Configure reference scanmem
+      run: pushd $REFERENCE_SCANMEM_DIR && ./autogen.sh && ./configure && popd
+    - name: Build reference scanmem
+      run: pushd $REFERENCE_SCANMEM_DIR && make -j $(nproc) && popd
+
+    - name: Checkout test scanmem
+      run: mkdir $TEST_SCANMEM_DIR && pushd $TEST_SCANMEM_DIR && git init && git remote add origin $TEST_SCANMEM_REPO && git fetch --depth 1 origin $TEST_SCANMEM_COMMIT && git checkout FETCH_HEAD && popd
+    - name: Configure test scanmem
+      run: pushd $TEST_SCANMEM_DIR && ./autogen.sh && ./configure && popd
+    - name: Build test scanmem
+      run: pushd $TEST_SCANMEM_DIR && make -j $(nproc) && popd
+
+    - name: Create artifact archive
+      run: tar -czvf scanmem-tests-build-artifact.tar.gz --exclude=target/release/deps --exclude=target/release/build --exclude=target/release/examples --exclude=target/release/incremental --exclude=target/release/.fingerprint target/release $REFERENCE_SCANMEM_DIR $TEST_SCANMEM_DIR
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: scanmem-tests-build-artifact
+        path: scanmem-tests-build-artifact.tar.gz
+
+  run_conformance_suite:
+    runs-on: ubuntu-24.04
+    needs: [build_scanmem_tests]
+    steps:
+    - name: Download build artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: scanmem-tests-build-artifact
+    - name: Extract artifact archive
+      run: tar -xzvf ./scanmem-tests-build-artifact.tar.gz
+    - name: Test
+      run: sudo ./target/release/conformance --reference-scanmem-program $REFERENCE_SCANMEM_DIR/scanmem --test-scanmem-program $TEST_SCANMEM_DIR/scanmem -v --ctrf-output report.ctrf.json
+    - name: Publish test report
+      uses: ctrf-io/github-test-reporter@v1
+      with:
+        report-path: report.ctrf.json
+        github-report: true
+        test-report: true
+  
+  
