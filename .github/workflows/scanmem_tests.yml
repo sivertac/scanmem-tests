@@ -60,8 +60,7 @@ jobs:
       with:
         name: scanmem-tests-build-artifact
     - name: Test
-      run: sudo ls
-      #run: sudo ./target/debug/conformance --reference-scanmem-program $REFERENCE_SCANMEM_DIR/scanmem --test-scanmem-program $TEST_SCANMEM_DIR/scanmem --test Operators.0 -v --ctrf-output report.ctrf.json
+      run: sudo target/debug/conformance --reference-scanmem-program $REFERENCE_SCANMEM_DIR/scanmem --test-scanmem-program $TEST_SCANMEM_DIR/scanmem --test Operators.0 -v --ctrf-output report.ctrf.json
     - name: Publish test report
       uses: ctrf-io/github-test-reporter@v1
       with:
