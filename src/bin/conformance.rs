@@ -78,11 +78,16 @@ struct TestResultData {
 }
 
 // Create CTRF (Common Test Report Format) report of test result https://www.ctrf.io/.
-fn create_CTRF_report(start_time: SystemTime, stop_time: SystemTime, test_count: usize, pass_count: usize, fail_count: usize, test_result_map: &HashMap::<(&str, usize), TestResultData>) -> serde_json::Value {
+fn create_ctrf_report(start_time: SystemTime, stop_time: SystemTime, test_count: usize, pass_count: usize, fail_count: usize, test_result_map: &HashMap::<(&str, usize), TestResultData>) -> serde_json::Value {
 
     let mut output_tests = vec![];
 
-    for p in test_result_map {
+    let mut sorted_test_result_map: Vec<(&(&str, usize), &TestResultData)> = test_result_map.iter().collect();
+    // Sort test results by test name and fixture. 
+    // Since sort_by_key is stable, we know elements will not be reordered if they are equal, so we can sort them separately for each component.
+    sorted_test_result_map.sort_by_key(|p| p.0.1);
+    sorted_test_result_map.sort_by_key(|p| p.0.0);
+    for p in sorted_test_result_map {
 
         output_tests.push(json!({
             "name": create_test_id_string(p.0.0, p.0.1),
@@ -114,8 +119,8 @@ fn create_CTRF_report(start_time: SystemTime, stop_time: SystemTime, test_count:
                 "skipped": 0,
                 "other": 0,
                 "suites": suites,
-                "start": start_time,
-                "stop": stop_time
+                "start": start_time.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+                "stop": stop_time.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
             },
             "tests": output_tests
         }
@@ -228,7 +233,7 @@ fn main() -> ExitCode {
     println!("Fail count...............{}", fail_count);
 
     if let Some(ctrf_output_file) = cli.ctrf_output {
-        write_json_to_file(&ctrf_output_file, &create_CTRF_report(start_time, stop_time, test_count, pass_count, fail_count, &test_result_map));
+        write_json_to_file(&ctrf_output_file, &create_ctrf_report(start_time, stop_time, test_count, pass_count, fail_count, &test_result_map));
     }
 
     if fail_count > 0 {
