@@ -27,7 +27,7 @@ jobs:
     - name: Install scanmem dependencies
       run: sudo apt-get install -y autotools-dev libtool libreadline-dev intltool
     
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Build scanmem-tests
       run: cargo build --release --verbose
     
