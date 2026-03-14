@@ -27,7 +27,7 @@ jobs:
     - name: Install scanmem dependencies
       run: sudo apt-get install -y autotools-dev libtool libreadline-dev intltool
     
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Build scanmem-tests
       run: cargo build --release --verbose
     
@@ -48,7 +48,7 @@ jobs:
     - name: Create artifact archive
       run: tar -czvf scanmem-tests-build-artifact.tar.gz --exclude=target/release/deps --exclude=target/release/build --exclude=target/release/examples --exclude=target/release/incremental --exclude=target/release/.fingerprint target/release $REFERENCE_SCANMEM_DIR $TEST_SCANMEM_DIR
     - name: Upload build artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: scanmem-tests-build-artifact
         path: scanmem-tests-build-artifact.tar.gz
@@ -58,13 +58,14 @@ jobs:
     needs: [build_scanmem_tests]
     steps:
     - name: Download build artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v6
       with:
         name: scanmem-tests-build-artifact
     - name: Extract artifact archive
       run: tar -xzvf ./scanmem-tests-build-artifact.tar.gz
     - name: Test
       run: sudo ./target/release/conformance --reference-scanmem-program $REFERENCE_SCANMEM_DIR/scanmem --test-scanmem-program $TEST_SCANMEM_DIR/scanmem -v --ctrf-output report.ctrf.json
+      continue-on-error: true # If we have a failure, we still want the test report.
     - name: Publish test report
       uses: ctrf-io/github-test-reporter@v1
       with:
