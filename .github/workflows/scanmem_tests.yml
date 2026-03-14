@@ -71,5 +71,6 @@ jobs:
         report-path: report.ctrf.json
         github-report: true
         test-report: true
+        previous-results-report: true
   
   
