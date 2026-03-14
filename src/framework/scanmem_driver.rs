@@ -131,6 +131,14 @@ impl ScanmemDriver {
                 let buf;
                 if let Err(e) = res {
                     if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                        // notify that process has crashed.
+                        let mut guard = match_data.0.lock().unwrap();
+                        *guard = Some(MatchData{
+                            error: true,
+                            match_count: 0,
+                        });
+                        match_data.1.notify_one();
+
                         break;
                     }
                     else if e.kind() == std::io::ErrorKind::Interrupted {
@@ -192,7 +200,6 @@ impl ScanmemDriver {
 
         // Read and reset.
         
-
         guard.take().unwrap()
     }
 
