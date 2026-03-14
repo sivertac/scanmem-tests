@@ -48,7 +48,7 @@ jobs:
     - name: Create artifact archive
       run: tar -czvf scanmem-tests-build-artifact.tar.gz --exclude=target/release/deps --exclude=target/release/build --exclude=target/release/examples --exclude=target/release/incremental --exclude=target/release/.fingerprint target/release $REFERENCE_SCANMEM_DIR $TEST_SCANMEM_DIR
     - name: Upload build artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: scanmem-tests-build-artifact
         path: scanmem-tests-build-artifact.tar.gz
@@ -58,7 +58,7 @@ jobs:
     needs: [build_scanmem_tests]
     steps:
     - name: Download build artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v6
       with:
         name: scanmem-tests-build-artifact
     - name: Extract artifact archive
