@@ -65,6 +65,7 @@ jobs:
       run: tar -xzvf ./scanmem-tests-build-artifact.tar.gz
     - name: Test
       run: sudo ./target/release/conformance --reference-scanmem-program $REFERENCE_SCANMEM_DIR/scanmem --test-scanmem-program $TEST_SCANMEM_DIR/scanmem -v --ctrf-output report.ctrf.json
+      continue-on-error: true # If we have a failure, we still want the test report.
     - name: Publish test report
       uses: ctrf-io/github-test-reporter@v1
       with:
